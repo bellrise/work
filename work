@@ -50,7 +50,9 @@ def usage():
         '  status       status of time timer',
         '  pause        pause the timer',
         '  resume       unpause the timer',
+        '  path         return the path to the config files',
         '  list         list the saved data',
+        '    --raw      print the saved data in raw format',
         '  backup       save the hours into a .bak file',
         '    --clean    remove all .bak files',
         '    --list     list all backup files',
@@ -120,8 +122,15 @@ def action_stop():
 
 def action_list():
     # List the collected data.
+    # Options:
+    #   --raw       print the hours in raw format
+
     with open(CONFIG_DIR + '/hours') as f:
         hours = f.readlines()
+
+    if len(sys.argv) > 2 and sys.argv[2] == '--raw':
+        sh(f"cat {CONFIG_DIR}/hours")
+        return
 
     for line in hours:
         end_date, elapsed, desc = line.strip().split(' ', 2)
@@ -136,6 +145,7 @@ def action_backup():
     # Options:
     #   --clean     remove all *.bak files
     #   --list      list all *.bak files
+    #   --print     print all *.bak files
 
     list_cmd = f"find {CONFIG_DIR} -name '*.bak'"
 
@@ -205,9 +215,18 @@ def main():
     # Parse arguments & run the program.
     if len(sys.argv) < 2:
         usage()
+    action = sys.argv[1]
 
-    if sys.argv[1] in ('help', '-h', '--help', '-?', '?'):
+    if action in ('help', '-h', '--help', '-?', '?'):
         usage()
+
+    aliases = {
+        'pause': ('p', ),
+        'resume': ('r', 'res', 'continue'),
+        'backup': ('back', ),
+        'status': ('s', ),
+        'list': ('show', )
+    }
 
     actions = {
         'start': action_start,
@@ -218,19 +237,17 @@ def main():
         'continue': action_resume,
         'backup': action_backup,
         'list': action_list,
-        'p': action_pause,
-        's': action_status,
-        'r': action_resume,
-        'res': action_resume,
-        'continue': action_resume,
-        'back': action_backup,
-        'show': action_list
+        'path': lambda: print(CONFIG_DIR)
     }
 
-    if sys.argv[1] not in actions:
+    for cmd, alias_list in aliases.items():
+        if action in alias_list:
+            action = cmd
+
+    if action not in actions:
         error('Unknown action', f"'{sys.argv[1]}'")
 
     setup()
-    actions[sys.argv[1]]()
+    actions[action]()
 
 main()
