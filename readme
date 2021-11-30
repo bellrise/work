@@ -1,0 +1,6 @@
+work
+
+work is a small app for keeping track of your worked hours. In the morning
+you may simply `work start` and `work stop` at the end of the day.
+
+To leave for lunch, run `work pause` and `work resume` after.
