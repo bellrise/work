@@ -24,6 +24,16 @@ def read(file_) -> str:
         return f.read()
 
 
+def confirm() -> bool:
+    # Ask for confirmation
+    while True:
+        res = input('Are you sure? [Y/N] ')
+        if res.lower() in ('y', 'yes'):
+            return True
+        if res.lower() in ('n', 'no'):
+            return False
+
+
 def get_elapsed() -> tuple:
     # Parse the string timestamp and return the elapsed hours, minutes
     # and seconds in a tuple.
@@ -56,7 +66,9 @@ def usage():
         '  backup       save the hours into a .bak file',
         '    --clean    remove all .bak files',
         '    --list     list all backup files',
-        '    --print    print the contents of all backup files\n',
+        '    --print    print the contents of all backup files',
+        '  forget       forget the last work session',
+        '    --all      forget all the sessions\n',
         'Aliases:',
         '  pause        p',
         '  status       s',
@@ -156,7 +168,10 @@ def action_backup():
             sh(list_cmd)
         if sys.argv[2] == '--print':
             sh(list_cmd + '| xargs cat')
-        return
+
+        # Support for call from action_forget
+        if not sys.argv[2] == '--all':
+            return
 
     epoch = int(time.time())
     sh(f"cat {CONFIG_DIR}/hours > {CONFIG_DIR}/{epoch}.bak")
@@ -211,6 +226,29 @@ def action_resume():
     print('\033[1;32m●\033[0m Resumed')
 
 
+def action_forget():
+    # Forget the last work session.
+    # Options:
+    #   --all   forget all work sessions
+    if len(sys.argv) > 2 and sys.argv[2] == '--all':
+        print('\033[1;31m!!!\033[0m You are about to remove ALL work sessions')
+        if not confirm():
+            return
+
+        print('Removed all work sessions, but ran `work backup` before.')
+        action_backup()
+        sh(f"printf '' > {CONFIG_DIR}/hours")
+        return
+
+    # Remove the last element
+    print('\033[1;31m!!!\033[0m You are about to remove the last session.')
+    if not confirm():
+        return
+
+    sh(f"cat {CONFIG_DIR}/hours | head -n -1 > {CONFIG_DIR}/__tmp")
+    sh(f"mv {CONFIG_DIR}/__tmp {CONFIG_DIR}/hours")
+
+
 def main():
     # Parse arguments & run the program.
     if len(sys.argv) < 2:
@@ -234,6 +272,7 @@ def main():
         'pause': action_pause,
         'status': action_status,
         'resume': action_resume,
+        'forget': action_forget,
         'continue': action_resume,
         'backup': action_backup,
         'list': action_list,
