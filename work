@@ -9,7 +9,8 @@ import os
 
 
 CONFIG_DIR = os.environ['HOME'] + '/.config/work'
-sh = os.system
+_config    = {}
+sh         = os.system
 
 
 def error(*msg):
@@ -83,7 +84,7 @@ def setup():
     # Prepare all required files. This functions makes sure that all
     # required config files and directories are created before running
     # the program, so it doesn't have to have try/excepts everywhere.
-    required = ('hours', 'timer', 'pause')
+    required = ('hours', 'timer', 'pause', 'start')
 
     if os.path.exists(CONFIG_DIR):
         if all(os.path.exists(CONFIG_DIR + '/' + x) for x in required):
@@ -93,7 +94,35 @@ def setup():
 
     # Create the files
     for f in required:
-        open(CONFIG_DIR + '/' + f, 'w').close()
+        open(CONFIG_DIR + '/' + f, 'a').close()
+
+
+def load_config():
+    # Load the configuration file from CONFIG_DIR/work.conf. Create a new
+    # one if none is found, and fill in any empty fields with default values.
+    if not os.path.exists(CONFIG_DIR + '/work.conf'):
+        required_fields = ('watch', )
+
+        with open(CONFIG_DIR + '/work.conf', 'w') as f:
+            f.write('Config file for work app\n\n')
+            for field in required_fields:
+                f.write(f'{field}=\n')
+
+    # Config parser
+    with open(CONFIG_DIR + '/work.conf') as f:
+        lines = [a.strip() for a in f.readlines()]
+    lines = [a for a in lines if a and not a.startswith('#')]
+
+    conf_variables = {
+        '$HOME': os.environ['HOME'],
+        '$USER': os.environ['USER']
+    }
+
+    for line in lines:
+        k, v = line.split('=', 1)
+        for key, var in conf_variables.items():
+            v = v.replace(key, var)
+        _config[k] = v
 
 
 def action_start():
@@ -103,6 +132,7 @@ def action_start():
         error('Cannot start timer, one is already running')
 
     sh(f"echo `date +%s` > {CONFIG_DIR}/timer")
+    sh(f"echo `date +%s` > {CONFIG_DIR}/start")
     print('\033[1;32m●\033[0m Active')
 
 
@@ -110,6 +140,7 @@ def action_stop():
     # Stop the timer. If the timer is paused, resume it first.
     pause_time = read('pause')
     timer_time = read('timer')
+    start_time = read('start')
 
     if pause_time:
         diff = int(time.time()) - int(pause_time)
@@ -124,7 +155,26 @@ def action_stop():
     else:
         print(f"Nice, this session took {h} hour(s) and {m} minute(s)")
 
-    short_message = input('What did you do? ')
+    # short_message = input('What did you do? ')
+    short_message = 'nothing'
+
+    # Read git logs from the tracked repositories
+    tracked_repos = [a for a in _config['watch'].split(',') if a]
+    commits = []
+    for path in tracked_repos:
+        if not os.path.exists(path) or not os.path.exists(path + '/.git'):
+            error(f"{path} is not a git repository")
+
+        # Get the data
+        sh(f"cd {path}; git log --oneline --since={start_time} > {CONFIG_DIR}/__tmp")
+        repo_commits = read('__tmp').replace('\n', '<&&&>')
+        if not repo_commits:
+            continue
+        repo_commits = f"<&&&>{path}<&&&>" + repo_commits
+        commits.append(repo_commits)
+        sh(f"rm {CONFIG_DIR}/__tmp")
+
+    short_message += ''.join(commits)
 
     # Save the data to a file with a short message
     time_fmt = f"{h:02d}:{m:02d}:{s:02d}"
@@ -149,7 +199,18 @@ def action_list():
         end_date = end_date[6:]
         h, m, _ = (int(t) for t in elapsed.split(':'))
         print(f'\033[92m{end_date} - \033[96m{h} hours and {m} minute(s)\033[0m')
-        print(f'    {desc}')
+
+        # Format the description. If any commits were made, all data is put
+        # after the first <&&&> tag.
+        desc = [a for a in desc.split('<&&&>') if a]
+        if len(desc) > 1:
+            name, rest = desc[1], desc[2:]
+            print('  ' + name)
+            for commit in rest:
+                hash_, text = commit.split(' ', 1)
+                print(f'    \033[93m{hash_}\033[0m {text}')
+
+        print('  ' + desc[0])
 
 
 def action_backup():
@@ -164,14 +225,14 @@ def action_backup():
     if len(sys.argv) > 2:
         if sys.argv[2] == '--clean':
             sh(list_cmd + '| xargs rm')
-        if sys.argv[2] == '--list':
+        elif sys.argv[2] == '--list':
             sh(list_cmd)
-        if sys.argv[2] == '--print':
+        elif sys.argv[2] == '--print':
             sh(list_cmd + '| xargs cat')
-
-        # Support for call from action_forget
-        if not sys.argv[2] == '--all':
-            return
+        elif sys.argv[2] == '--all':
+            pass
+        else:
+            error(f"unknown option '{sys.argv[2]}'")
 
     epoch = int(time.time())
     sh(f"cat {CONFIG_DIR}/hours > {CONFIG_DIR}/{epoch}.bak")
@@ -287,6 +348,7 @@ def main():
         error('Unknown action', f"'{sys.argv[1]}'")
 
     setup()
+    load_config()
     actions[action]()
 
 main()
