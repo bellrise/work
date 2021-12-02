@@ -166,19 +166,19 @@ def action_stop():
 
         # Get the data
         # TODO: FIX THIIS
-        sh(f"cd {path}; git log --oneline --since=0 &> {CONFIG_DIR}/__tmp")
+        sh(f"cd {path}; git log --oneline --since={start_time} &> {CONFIG_DIR}/__tmp")
         repo_commits = read('__tmp').replace('\n', '<&&&>')
         if not repo_commits:
             continue
         repo_commits = f"<&&&>{path}<&&&>" + repo_commits
         commits.append(repo_commits)
-        sh(f"rm {CONFIG_DIR}/__tmp")
+        sh(f"rm -r {CONFIG_DIR}/__tmp")
 
     short_message += ''.join(commits)
 
     # Save the data to a file with a short message
     time_fmt = f"{h:02d}:{m:02d}:{s:02d}"
-    sh(f"echo `date '+%H:%M/%D'`' {time_fmt} {short_message}' >> {CONFIG_DIR}/hours")
+    sh(f"echo `date '+%H:%M/%d/%m/%y'`' {time_fmt} {short_message}' >> {CONFIG_DIR}/hours")
     sh(f"printf '' > {CONFIG_DIR}/timer")
 
 
@@ -308,6 +308,7 @@ def action_forget():
 
     sh(f"cat {CONFIG_DIR}/hours | head -n -1 > {CONFIG_DIR}/__tmp")
     sh(f"mv {CONFIG_DIR}/__tmp {CONFIG_DIR}/hours")
+    sh(f"rm -f {CONFIG_DIR}/__tmp")
 
 
 def main():
