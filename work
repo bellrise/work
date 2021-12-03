@@ -64,6 +64,7 @@ def usage():
         '  path         return the path to the config files',
         '  list         list the saved data',
         '    --raw      print the saved data in raw format',
+        '    --sum      sum all the hours',
         '  backup       save the hours into a .bak file',
         '    --clean    remove all .bak files',
         '    --list     list all backup files',
@@ -101,7 +102,7 @@ def load_config():
     # Load the configuration file from CONFIG_DIR/work.conf. Create a new
     # one if none is found, and fill in any empty fields with default values.
     if not os.path.exists(CONFIG_DIR + '/work.conf'):
-        required_fields = ('watch', )
+        required_fields = ('watch', 'hour_pay')
 
         with open(CONFIG_DIR + '/work.conf', 'w') as f:
             f.write('# Config file for work app\n\n')
@@ -186,9 +187,13 @@ def action_list():
     # List the collected data.
     # Options:
     #   --raw       print the hours in raw format
+    #   --sum       sum all the hours in the list
 
     with open(CONFIG_DIR + '/hours') as f:
         hours = f.readlines()
+
+    total_h = 0
+    total_m = 0
 
     if len(sys.argv) > 2 and sys.argv[2] == '--raw':
         sh(f"cat {CONFIG_DIR}/hours")
@@ -199,6 +204,9 @@ def action_list():
         end_date = end_date[6:]
         h, m, _ = (int(t) for t in elapsed.split(':'))
         print(f'\033[92m{end_date} - \033[96m{h} hours and {m} minute(s)\033[0m')
+
+        total_h += h
+        total_m += m
 
         # Format the description. If any commits were made, all data is put
         # after the first <&&&> tag.
@@ -211,6 +219,20 @@ def action_list():
                 print(f'    \033[93m{hash_}\033[0m {text}')
 
         print('  ' + desc[0])
+
+    if len(sys.argv) > 2 and sys.argv[2] == '--sum':
+        tmp = total_m % 60
+        total_h += (total_m - tmp) / 60
+        total_m = tmp
+
+        print(f'\033[93mTotal: {int(total_h)} hours and {total_m} minutes ', end='')
+        if 'hour_pay' in _config:
+            pay = (total_h + (total_m / 60)) * int(_config['hour_pay'])
+            fmt = ''
+            if 'currency' in _config:
+                fmt = ' ' + _config['currency']
+            print(f'({pay}{fmt})', end='')
+        print('\033[0m')
 
 
 def action_backup():
