@@ -22,7 +22,7 @@ def error(*msg):
 def read(file_) -> str:
     # Read a config file and return the contents of it.
     with open(CONFIG_DIR + '/' + file_) as f:
-        return f.read()
+        return f.read().strip()
 
 
 def confirm() -> bool:
@@ -47,7 +47,7 @@ def get_elapsed() -> tuple:
     m, s = divmod(elapsed, 60)
     h, m = divmod(m, 60)
 
-    return (int(t) for t in (h, m, s))
+    return tuple(int(t) for t in (h, m, s))
 
 
 def usage():
@@ -166,8 +166,8 @@ def action_stop():
             error(f"{path} is not a git repository")
 
         # Get the data
-        # TODO: FIX THIIS
-        sh(f"cd {path}; git log --oneline --since={start_time} &> {CONFIG_DIR}/__tmp")
+        sh(f"cd {path}; git log --oneline --since={start_time} " \
+           f"> {CONFIG_DIR}/__tmp")
         repo_commits = read('__tmp').replace('\n', '<&&&>')
         if not repo_commits:
             continue
@@ -231,7 +231,7 @@ def action_list():
             fmt = ''
             if 'currency' in _config:
                 fmt = ' ' + _config['currency']
-            print(f'({pay}{fmt})', end='')
+            print(f'({int(pay)}{fmt})', end='')
         print('\033[0m')
 
 
