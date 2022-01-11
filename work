@@ -207,6 +207,10 @@ def action_list():
         return
 
     for line in hours:
+        # Skip any commented lines
+        if line.strip().startswith('#') or not line.strip():
+            continue
+
         end_date, elapsed, desc = line.strip().split(' ', 2)
         end_date = end_date[6:]
         h, m, _ = (int(t) for t in elapsed.split(':'))
