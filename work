@@ -43,7 +43,14 @@ def get_elapsed() -> tuple:
         error('No timer started')
 
     start_time = int(timer)
-    elapsed = time.time() - start_time
+
+    # We want to remove the paused time too.
+    paused = read('pause')
+    if paused:
+        elapsed = int(paused) - start_time
+    else:
+        elapsed = time.time() - start_time
+
     m, s = divmod(elapsed, 60)
     h, m = divmod(m, 60)
 
