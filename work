@@ -222,14 +222,13 @@ def action_list():
         # Format the description. If any commits were made, all data is put
         # after the first <&&&> tag.
         desc = [a for a in desc.split('<&&&>') if a]
+        print('  ' + desc[0])
         if len(desc) > 1:
             name, rest = desc[1], desc[2:]
             print('  ' + name)
             for commit in rest:
                 hash_, text = commit.split(' ', 1)
                 print(f'    \033[93m{hash_}\033[0m {text}')
-
-        print('  ' + desc[0])
 
     if len(sys.argv) > 2 and sys.argv[2] == '--sum':
         tmp = total_m % 60
