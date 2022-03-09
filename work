@@ -214,7 +214,7 @@ def action_list():
         end_date, elapsed, desc = line.strip().split(' ', 2)
         end_date = end_date[6:]
         h, m, _ = (int(t) for t in elapsed.split(':'))
-        print(f'\033[92m{end_date} - \033[96m{h} hours and {m} minute(s)\033[0m')
+        print(f'\033[92m{end_date} - \033[96m{h} hours\033[0m')
 
         total_h += h
         total_m += m

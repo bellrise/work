@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+# Copyright (c) 2022 bellrise <contact@bellrise.net>
+# Small app for keeping track of worked hours. Note that all paths begin
+# from the defined WORK_DIR. No files can be placed elsewhere.
+
+from typing import Union
+import urllib.request
+import urllib.error
+import time
+import json
+import sys
+import os
+
+__version__ = (2, 0)
+
+WORK_DIR   = os.environ['HOME'] + '/dev/work/tmp'
+REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
+
+
+def unixtime():
+    return int(time.time())
+
+
+def ok(*msgs):
+    msgs = [str(x) for x in msgs]
+    print('\033[92m*\033[0m', *msgs)
+
+
+def warn(*msgs):
+    msgs = [str(x) for x in msgs]
+    print('\033[93m?\033[0m', *msgs)
+
+
+def err(*msgs):
+    msgs = [str(x) for x in msgs]
+    print('\033[91m!\033[0m', *msgs)
+    exit()
+
+
+class Timer:
+    # This class handles the open timer, which can be serialized and stored
+    # into a file, usually located in ~/.config/work (defined by WORK_DIR).
+    # The timer file has a specified format for holding the start time, status,
+    # any pause and/or resume time.
+    #
+    # This is the basic format of such a file:
+    # status:start:last_pause:paused_for
+
+    # Status of the timer. These values are presented in a human-readable form,
+    # so you can read the file and know what's going on.
+    STAT_STOPPED = 'stopped'
+    STAT_RUNNING = 'running'
+    STAT_PAUSED  = 'paused'
+
+    # Container for storing the timer data
+    timer: dict
+    timer_path: str
+
+    def __init__(self, timer_file: str) -> None:
+        # Read or create the timer file if it does not exist.
+        self.timer_path = WORK_DIR + '/' + timer_file
+        if not os.path.exists(self.timer_path):
+            open(self.timer_path, 'w').close()
+
+        with open(self.timer_path) as f:
+            raw_data = f.read()
+        if not raw_data or raw_data.count(':') != 3:
+            raw_data = 'stopped:0:0:0'
+
+        stat, start, last_pause, paused_for = raw_data.split(':')
+
+        self.timer = {
+            'stat': stat,
+            'start': int(start),
+            'last_pause': int(last_pause),
+            'paused_for': int(paused_for)
+        }
+
+    def close(self):
+        # Automatically save the changes to the file.
+        with open(self.timer_path, 'w') as f:
+            elems = self.timer['stat'], str(self.timer['start']), \
+                    str(self.timer['last_pause']), str(self.timer['paused_for'])
+            f.write(':'.join(elems))
+
+    def start(self):
+        # Start the timer
+        if self.timer['stat'] in [self.STAT_RUNNING, self.STAT_PAUSED]:
+            err('Cannot start timer, already running')
+
+        self.timer['stat'] = self.STAT_RUNNING
+        self.timer['start'] = unixtime()
+
+        ok('Started the timer')
+
+    def stop(self):
+        # Stop the timer
+        if self.timer['stat'] == self.STAT_STOPPED:
+            err('Cannot stop, timer isn\'t running')
+
+        ok('Title of session:')
+        title = input(': ')
+        self.timer['stat'] = self.STAT_STOPPED
+
+        # TODO: actually stop the timer
+        ok('Stopped the timer')
+
+    def elapsed_time(self):
+        # Format the running time in a nice way.
+        since_start = unixtime() - self.timer['start']
+        elapsed = since_start - self.timer['paused_for']
+
+        m, _ = divmod(elapsed, 60)
+        h, m = divmod(m, 60)
+
+        if h:
+            return f'{h} hour(s) and {m} minute(s)'
+        return f'{m} minute(s)'
+
+    def status(self):
+        # Show the status of the timer
+        s = self.timer['stat']
+        if s == self.STAT_PAUSED:
+            ok('Paused, elapsed:', self.elapsed_time())
+        if s == self.STAT_STOPPED:
+            ok('Stopped')
+        if s == self.STAT_RUNNING:
+            ok('Running, elapsed:', self.elapsed_time())
+
+def usage():
+    # Print the help page and exit.
+    help_lines = (
+        'usage: work <action> [option]...\n',
+        'Keep track of worked hours.\n',
+        'Actions:',
+        '  help         show the help page',
+        '  start        start the timer',
+        '  stop         stop the timer',
+        '  status       status of the timer',
+        '  update       check for updates',
+        '  version      version of `work`'
+    )
+
+    print('\n'.join(help_lines))
+    exit()
+
+def version():
+    # Print the version and exit.
+    print(f'work {__version__[0]}.{__version__[1]}')
+    exit()
+
+
+def fetch_file_from_repository(url: str) -> Union[str, None]:
+    # Fetch a file from the remote repository.
+    if url[0] != '/':
+        url = '/' + url
+    try:
+        with urllib.request.urlopen(REPOSITORY + url) as f:
+            return str(f.read(), 'utf8')
+    except urllib.error.URLError:
+        return None
+
+
+def read_file(path: str) -> Union[str, None]:
+    # Read a file from the working directory.
+    if not os.path.exists(WORK_DIR + '/' + path):
+        return None
+    with open(WORK_DIR + '/' + path) as f:
+        return f.read()
+
+
+def update():
+    # Update `work`, if the version.json file says there is a new source file
+    # available in the repository.
+    version_json = fetch_file_from_repository('version.json')
+    if not version_json:
+        err('Failed to fetch version.json')
+
+    version = json.loads(version_json)
+    major, minor = [int(x) for x in version['version'].split('.')]
+    v = __version__
+    if major > v[0] or (major >= v[0] and minor > v[1]):
+        ok(f'New version {major}.{minor} available')
+        selected = False
+        while True:
+            yn = input('Do you want to update? [Y/n]')
+            if not yn or yn.lower() in ('y', 'yes'):
+                selected = True
+                break
+
+        if not selected:
+            return
+    elif (major, minor) != v:
+        warn('Suspicious version, this is newer than the origin')
+        return
+    else:
+        print('work: up to date')
+        return
+
+    # Download the new code
+    print(f"work: Downloading {version['source']}")
+    source_code = fetch_file_from_repository(version['source'])
+    if not source_code:
+        print('work: failed to update')
+        return
+
+    with open(WORK_DIR + '/_tmp_source', 'w') as f:
+        f.write(source_code)
+    os.rename(WORK_DIR + '/_tmp_source', __file__)
+    os.remove(WORK_DIR + '/_tmp_source')
+
+
+def detect_work1():
+    # If the work version 1 file structure is detected, all files will be
+    # updated to work with the new format.
+
+    old_version = False
+
+    old_files = ('hours', 'timer', 'pause', 'start')
+    old_file_missing = False
+    for file in old_files:
+        if not os.path.exists(WORK_DIR + '/' + file):
+            old_file_missing = True
+            break
+
+    if not old_file_missing:
+        old_version = True
+
+    if not old_version:
+        content = read_file('timer')
+        if content and ':' not in content:
+            old_version = True
+
+    if not old_version:
+        return
+
+    # Update the files
+
+    warn('Detected old version, updating file system')
+    _, timer, pause, start = [read_file(f) for f in old_files]
+    if not timer or not pause or not start:
+        err('Failed to update file system')
+
+    if ':' in timer:
+        timer = timer.split(':')[1]
+    (os.remove(WORK_DIR + '/' + f) for f in old_files)
+
+    # TODO: after removing the files, move the data to a new location
+
+
+def main():
+    # Parse arguments & run the program.
+    if len(sys.argv) < 2:
+        usage()
+
+    if any([x in ['--help', '-h', '?', '-?'] for x in sys.argv]):
+        usage()
+    if any([x in ['--version', '-v'] for x in sys.argv]):
+        version()
+
+    # TODO: this thing
+    # detect_work1()
+    timer = Timer('timer')
+    actions = {
+        'help': usage,
+        'start': timer.start,
+        'stop': timer.stop,
+        'status': timer.status,
+        'update': update,
+        'version': version,
+    }
+
+    if sys.argv[1] in actions:
+        actions[sys.argv[1]]()
+    else:
+        warn('Unknown action:', sys.argv[1])
+
+    timer.close()
+
+main()
