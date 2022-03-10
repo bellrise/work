@@ -76,12 +76,20 @@ class Timer:
             'paused_for': int(paused_for)
         }
 
+    @staticmethod
+    def timer_fmt(stat, start_=0, last_pause=0, paused_for=0):
+        # Format the parameters to create the timer string that will
+        # be put in the `timer` file.
+        start_, last_pause, paused_for = [str(x) for x in
+                (start_, last_pause, paused_for)]
+        return f'{stat}:{start_}:{last_pause}:{paused_for}'
+
     def close(self):
         # Automatically save the changes to the file.
         with open(self.timer_path, 'w') as f:
-            elems = self.timer['stat'], str(self.timer['start']), \
-                    str(self.timer['last_pause']), str(self.timer['paused_for'])
-            f.write(':'.join(elems))
+            fmt = self.timer_fmt(self.timer['stat'], self.timer['start'],
+                    self.timer['last_pause'], self.timer['paused_for'])
+            f.write(fmt)
 
     def start(self):
         # Start the timer
@@ -127,6 +135,7 @@ class Timer:
         if s == self.STAT_RUNNING:
             ok('Running, elapsed:', self.elapsed_time())
 
+
 def usage():
     # Print the help page and exit.
     help_lines = (
@@ -169,6 +178,17 @@ def read_file(path: str) -> Union[str, None]:
         return f.read()
 
 
+def confirm(msg: str) -> bool:
+    # Confirm something with the user, by providing
+    # a `msg [Y/n] ` line.
+    while True:
+        yn = input(f'{msg} [Y/n] ')
+        if not yn or yn.lower() in ('y', 'yes'):
+            return True
+        if yn.lower() in ('n', 'no'):
+            return False
+
+
 def update():
     # Update `work`, if the version.json file says there is a new source file
     # available in the repository.
@@ -181,14 +201,7 @@ def update():
     v = __version__
     if major > v[0] or (major >= v[0] and minor > v[1]):
         ok(f'New version {major}.{minor} available')
-        selected = False
-        while True:
-            yn = input('Do you want to update? [Y/n]')
-            if not yn or yn.lower() in ('y', 'yes'):
-                selected = True
-                break
-
-        if not selected:
+        if not confirm('Do you want to update?'):
             return
     elif (major, minor) != v:
         warn('Suspicious version, this is newer than the origin')
@@ -210,42 +223,23 @@ def update():
     os.remove(WORK_DIR + '/_tmp_source')
 
 
-def detect_work1():
-    # If the work version 1 file structure is detected, all files will be
-    # updated to work with the new format.
+def detect_work1() -> bool:
+    # If the old file format is detected, update the `timer` file with
+    # the proper data. Returns true if the program can continue.
 
-    old_version = False
+    data = read_file('timer')
+    if data and ':' in data:
+        return True
 
-    old_files = ('hours', 'timer', 'pause', 'start')
-    old_file_missing = False
-    for file in old_files:
-        if not os.path.exists(WORK_DIR + '/' + file):
-            old_file_missing = True
-            break
+    warn('Outdated file system format detected, this will automatically')
+    warn('update it. Be sure to halt any running session beforehand.')
+    if not confirm('Update file system'):
+        return False
 
-    if not old_file_missing:
-        old_version = True
-
-    if not old_version:
-        content = read_file('timer')
-        if content and ':' not in content:
-            old_version = True
-
-    if not old_version:
-        return
-
-    # Update the files
-
-    warn('Detected old version, updating file system')
-    _, timer, pause, start = [read_file(f) for f in old_files]
-    if not timer or not pause or not start:
-        err('Failed to update file system')
-
-    if ':' in timer:
-        timer = timer.split(':')[1]
-    (os.remove(WORK_DIR + '/' + f) for f in old_files)
-
-    # TODO: after removing the files, move the data to a new location
+    if not data or ':' not in data:
+        with open(WORK_DIR + '/timer', 'w') as f:
+            f.write(Timer.timer_fmt(Timer.STAT_STOPPED))
+    return True
 
 
 def main():
@@ -258,8 +252,9 @@ def main():
     if any([x in ['--version', '-v'] for x in sys.argv]):
         version()
 
-    # TODO: this thing
-    # detect_work1()
+    if not detect_work1():
+        err('Please update the file system first.')
+
     timer = Timer('timer')
     actions = {
         'help': usage,
