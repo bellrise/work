@@ -109,8 +109,22 @@ class Timer:
         ok('Title of session:')
         title = input(': ')
         self.timer['stat'] = self.STAT_STOPPED
+        elapsed_time = unixtime() - self.timer['start'] \
+                - self.timer['paused_for']
 
-        # TODO: actually stop the timer
+        self.timer['start'] = 0
+        self.timer['paused_for'] = 0
+        self.timer['last_pause'] = 0
+
+        m, s = divmod(elapsed_time, 60)
+        h, m = divmod(m, 60)
+
+        time_str = time.strftime('%H:%M/%d/%m/%y')
+        fmt = f'{time_str} {h:02}:{m:02}:{s:02} {title}'
+
+        with open(WORK_DIR + '/hours', 'a') as f:
+            f.write(fmt + '\n')
+
         ok('Stopped the timer')
 
     def elapsed_time(self):
