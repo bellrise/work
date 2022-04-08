@@ -30,7 +30,10 @@ import re
 # - `work switch` to switch projects
 # - `work list` for listing sessions
 
-__version__ = (2, 2)
+# Changes in 2.3
+# - Added super basic `work edit` command
+
+__version__ = (2, 3)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
@@ -227,6 +230,13 @@ class Timer:
 
         ok('Started the timer')
 
+    def edit(self):
+        # Edit the session file using the user-defined editor.
+        if not self.editor:
+            err('No editor defined in config.ini\n',
+                ' To fix this define the editor under [settings].')
+        os.system(f'{self.editor} {self.wdir}/projects/{self.project}')
+
     def list(self):
         # List the saved hours.
         data = read_file('projects/' + self.project)
@@ -353,7 +363,7 @@ class Timer:
             regex = r'^[A-z_][A-z0-9_]*$'
             if not re.match(regex, value):
                 err(f'Invalid project name, must conform to /{regex}/')
-            return
+            write_file('projects/' + value, '')
 
         # Switch to the given project
         write_file('project', value)
@@ -404,6 +414,7 @@ def usage():
         'usage: work <action> [option]...\n',
         'Keep track of worked hours.',
         '\nActions:',
+        '  edit         edit the session list',
         '  help         show the help page',
         '  list         list the sessions in this project',
         '  pause        pause the timer',
@@ -582,6 +593,7 @@ def main():
 
     timer = Timer(WORK_DIR, editor=config['editor'])
     actions = {
+        'edit': timer.edit,
         'help': usage,
         'list': timer.list,
         'pause': timer.pause,
