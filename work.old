@@ -1,0 +1,387 @@
+#!/usr/bin/env python3
+
+# Script for handling work hours with ease. Note, this only works for
+# Posix systems. \(*-*)/
+
+import time
+import sys
+import os
+
+
+CONFIG_DIR = os.environ['HOME'] + '/.config/work'
+_config    = {}
+sh         = os.system
+
+
+def error(*msg):
+    # Print an error and exit.
+    print('\033[1;31m●\033[0m', *(str(x) for x in msg))
+    exit(1)
+
+
+def read(file_) -> str:
+    # Read a config file and return the contents of it.
+    with open(CONFIG_DIR + '/' + file_) as f:
+        return f.read().strip()
+
+
+def confirm() -> bool:
+    # Ask for confirmation
+    while True:
+        res = input('Are you sure? [Y/N] ')
+        if res.lower() in ('y', 'yes'):
+            return True
+        if res.lower() in ('n', 'no'):
+            return False
+
+
+def get_elapsed() -> tuple:
+    # Parse the string timestamp and return the elapsed hours, minutes
+    # and seconds in a tuple.
+    timer = read('timer')
+    if not timer:
+        error('No timer started')
+
+    start_time = int(timer)
+
+    # We want to remove the paused time too.
+    paused = read('pause')
+    if paused:
+        elapsed = int(paused) - start_time
+    else:
+        elapsed = time.time() - start_time
+
+    m, s = divmod(elapsed, 60)
+    h, m = divmod(m, 60)
+
+    return tuple(int(t) for t in (h, m, s))
+
+
+def usage():
+    # Print the usage (also known as the help page) and exit.
+    print('\n'.join((
+        'usage: work [action] [option]...\n',
+        'Handle work hours with ease.\n',
+        'Actions:',
+        '  start        start the timer',
+        '  stop         stop the timer, saving the result',
+        '  status       status of time timer',
+        '  pause        pause the timer',
+        '  resume       unpause the timer',
+        '  path         return the path to the config files',
+        '  list         list the saved data',
+        '    --raw      print the saved data in raw format',
+        '    --sum      sum all the hours',
+        '  backup       save the hours into a .bak file',
+        '    --clean    remove all .bak files',
+        '    --list     list all backup files',
+        '    --print    print the contents of all backup files',
+        '  forget       forget the last work session',
+        '    --all      forget all the sessions\n',
+        'Aliases:',
+        '  pause        p',
+        '  status       s',
+        '  resume       r, res, continue',
+        '  backup       back',
+        '  list         show'
+    )))
+    exit()
+
+
+def setup():
+    # Prepare all required files. This functions makes sure that all
+    # required config files and directories are created before running
+    # the program, so it doesn't have to have try/excepts everywhere.
+    required = ('hours', 'timer', 'pause', 'start')
+
+    if os.path.exists(CONFIG_DIR):
+        if all(os.path.exists(CONFIG_DIR + '/' + x) for x in required):
+            return
+    else:
+        os.mkdir(CONFIG_DIR)
+
+    # Create the files
+    for f in required:
+        open(CONFIG_DIR + '/' + f, 'a').close()
+
+
+def load_config():
+    # Load the configuration file from CONFIG_DIR/work.conf. Create a new
+    # one if none is found, and fill in any empty fields with default values.
+    if not os.path.exists(CONFIG_DIR + '/work.conf'):
+        required_fields = ('watch', 'hour_pay')
+
+        with open(CONFIG_DIR + '/work.conf', 'w') as f:
+            f.write('# Config file for work app\n\n')
+            for field in required_fields:
+                f.write(f'{field}=\n')
+
+    # Config parser
+    with open(CONFIG_DIR + '/work.conf') as f:
+        lines = [a.strip() for a in f.readlines()]
+    lines = [a for a in lines if a and not a.startswith('#')]
+
+    conf_variables = {
+        '$HOME': os.environ['HOME'],
+        '$USER': os.environ['USER']
+    }
+
+    for line in lines:
+        k, v = line.split('=', 1)
+        for key, var in conf_variables.items():
+            v = v.replace(key, var)
+        _config[k] = v
+
+
+def action_start():
+    # Start the timer.
+    timer = read('timer')
+    if timer:
+        error('Cannot start timer, one is already running')
+
+    sh(f"echo `date +%s` > {CONFIG_DIR}/timer")
+    sh(f"echo `date +%s` > {CONFIG_DIR}/start")
+    print('\033[1;32m●\033[0m Active')
+
+
+def action_stop():
+    # Stop the timer. If the timer is paused, resume it first.
+    pause_time = read('pause')
+    timer_time = read('timer')
+    start_time = read('start')
+
+    if pause_time:
+        diff = int(time.time()) - int(pause_time)
+        timer = diff + int(timer_time)
+        sh(f"echo '{timer}' > {CONFIG_DIR}/timer")
+        sh(f"printf '' > {CONFIG_DIR}/pause")
+
+    h, m, s = get_elapsed()
+
+    if not h:
+        print(f"Nice, this session took {m} minute(s)")
+    else:
+        print(f"Nice, this session took {h} hour(s) and {m} minute(s)")
+
+    short_message = input('msg> ')
+
+    # Read git logs from the tracked repositories
+    tracked_repos = [a for a in _config['watch'].split(',') if a]
+    commits = []
+    for path in tracked_repos:
+        if not os.path.exists(path) or not os.path.exists(path + '/.git'):
+            error(f"{path} is not a git repository")
+
+        # Get the data
+        sh(f"cd {path}; git log --oneline --since={start_time} " \
+           f"> {CONFIG_DIR}/__tmp")
+        repo_commits = read('__tmp').replace('\n', '<&&&>')
+        if not repo_commits:
+            continue
+        repo_commits = f"<&&&>{path}<&&&>" + repo_commits
+        commits.append(repo_commits)
+        sh(f"rm -r {CONFIG_DIR}/__tmp")
+
+    short_message += ''.join(commits)
+
+    # Save the data to a file with a short message
+    time_fmt = f"{h:02d}:{m:02d}:{s:02d}"
+    sh(f"echo `date '+%H:%M/%d/%m/%y'`' {time_fmt} {short_message}' >> {CONFIG_DIR}/hours")
+    sh(f"printf '' > {CONFIG_DIR}/timer")
+
+
+def action_list():
+    # List the collected data.
+    # Options:
+    #   --raw       print the hours in raw format
+    #   --sum       sum all the hours in the list
+
+    with open(CONFIG_DIR + '/hours') as f:
+        hours = f.readlines()
+
+    total_h = 0
+    total_m = 0
+
+    if len(sys.argv) > 2 and sys.argv[2] == '--raw':
+        sh(f"cat {CONFIG_DIR}/hours")
+        return
+
+    for line in hours:
+        # Skip any commented lines
+        if line.strip().startswith('#') or not line.strip():
+            continue
+
+        end_date, elapsed, desc = line.strip().split(' ', 2)
+        end_date = end_date[6:]
+        h, m, _ = (int(t) for t in elapsed.split(':'))
+        print(f'\033[92m{end_date} - \033[96m{h} hours\033[0m')
+
+        total_h += h
+        total_m += m
+
+        # Format the description. If any commits were made, all data is put
+        # after the first <&&&> tag.
+        desc = [a for a in desc.split('<&&&>') if a]
+        print('  ' + desc[0])
+        if len(desc) > 1:
+            name, rest = desc[1], desc[2:]
+            print('  ' + name)
+            for commit in rest:
+                hash_, text = commit.split(' ', 1)
+                print(f'    \033[93m{hash_}\033[0m {text}')
+
+    if len(sys.argv) > 2 and sys.argv[2] == '--sum':
+        tmp = total_m % 60
+        total_h += (total_m - tmp) / 60
+        total_m = tmp
+
+        print(f'\033[93mTotal: {int(total_h)} hours and {total_m} minutes ', end='')
+        if 'hour_pay' in _config:
+            pay = (total_h + (total_m / 60)) * int(_config['hour_pay'])
+            fmt = ''
+            if 'currency' in _config:
+                fmt = ' ' + _config['currency']
+            print(f'({int(pay)}{fmt})', end='')
+        print('\033[0m')
+
+
+def action_backup():
+    # Backup the data into a .bak file.
+    # Options:
+    #   --clean     remove all *.bak files
+    #   --list      list all *.bak files
+    #   --print     print all *.bak files
+
+    list_cmd = f"find {CONFIG_DIR} -name '*.bak'"
+
+    if len(sys.argv) > 2:
+        if sys.argv[2] == '--clean':
+            sh(list_cmd + '| xargs rm')
+        elif sys.argv[2] == '--list':
+            sh(list_cmd)
+        elif sys.argv[2] == '--print':
+            sh(list_cmd + '| xargs cat')
+        elif sys.argv[2] == '--all':
+            pass
+        else:
+            error(f"unknown option '{sys.argv[2]}'")
+
+    epoch = int(time.time())
+    sh(f"cat {CONFIG_DIR}/hours > {CONFIG_DIR}/{epoch}.bak")
+
+
+def action_status():
+    # Print the status
+    timer = read('timer')
+    pause   = read('pause')
+
+    if not timer:
+        print('\033[1;31m●\033[0m Not active')
+        return
+
+    if pause:
+        print('\033[1;33m●\033[0m Paused')
+    else:
+        print('\033[1;32m●\033[0m Active')
+
+    h, m, _ = get_elapsed()
+    if h:
+        print(f'  Running for {h} hour(s) and {m} minute(s)')
+    else:
+        print(f'  Running for {m} minute(s)')
+
+
+def action_pause():
+    # Pause the timer, by creating a new "pause" file.
+    pause = read('pause')
+    if pause:
+        error('Timer already paused')
+
+    sh(f"echo `date +%s` > {CONFIG_DIR}/pause")
+    print('\033[1;33m●\033[0m Paused')
+
+
+def action_resume():
+    # Resume the timer. This will add the difference between the current time
+    # and the paused time to work/timer.
+    pause_time = read('pause')
+    timer_time = read('timer')
+
+    if not timer_time:
+        error('Cannot unpause, the timer was never started')
+    if not pause_time:
+        error('Cannot unpause, the timer is still running')
+
+    diff = int(time.time()) - int(pause_time)
+    timer = diff + int(timer_time)
+    sh(f"echo '{timer}' > {CONFIG_DIR}/timer")
+    sh(f"printf '' > {CONFIG_DIR}/pause")
+    print('\033[1;32m●\033[0m Resumed')
+
+
+def action_forget():
+    # Forget the last work session.
+    # Options:
+    #   --all   forget all work sessions
+    if len(sys.argv) > 2 and sys.argv[2] == '--all':
+        print('\033[1;31m!!!\033[0m You are about to remove ALL work sessions')
+        if not confirm():
+            return
+
+        print('Removed all work sessions, but ran `work backup` before.')
+        action_backup()
+        sh(f"printf '' > {CONFIG_DIR}/hours")
+        return
+
+    # Remove the last element
+    print('\033[1;31m!!!\033[0m You are about to remove the last session.')
+    if not confirm():
+        return
+
+    sh(f"cat {CONFIG_DIR}/hours | head -n -1 > {CONFIG_DIR}/__tmp")
+    sh(f"mv {CONFIG_DIR}/__tmp {CONFIG_DIR}/hours")
+    sh(f"rm -f {CONFIG_DIR}/__tmp")
+
+
+def main():
+    # Parse arguments & run the program.
+    if len(sys.argv) < 2:
+        usage()
+    action = sys.argv[1]
+
+    if action in ('help', '-h', '--help', '-?', '?'):
+        usage()
+
+    aliases = {
+        'pause': ('p', ),
+        'resume': ('r', 'res', 'continue'),
+        'backup': ('back', ),
+        'status': ('s', ),
+        'list': ('show', )
+    }
+
+    actions = {
+        'start': action_start,
+        'stop': action_stop,
+        'pause': action_pause,
+        'status': action_status,
+        'resume': action_resume,
+        'forget': action_forget,
+        'continue': action_resume,
+        'backup': action_backup,
+        'list': action_list,
+        'path': lambda: print(CONFIG_DIR)
+    }
+
+    for cmd, alias_list in aliases.items():
+        if action in alias_list:
+            action = cmd
+
+    if action not in actions:
+        error('Unknown action', f"'{sys.argv[1]}'")
+
+    setup()
+    load_config()
+    actions[action]()
+
+main()
