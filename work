@@ -33,10 +33,19 @@ import re
 # Changes in 2.3
 # - Added super basic `work edit` command
 
-__version__ = (2, 3)
+# Changes in 2.4
+# - Add --short and --sum option to `work list`. The first one prints each
+#   session in a single line, and the sum options sums up all hours.
+# - Support git commits which get saved to the fil.
+
+__version__ = (2, 4)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
+
+REPO_SPLIT   = '<%%%>'
+COMMIT_SPLIT = '<&&&>'
+
 
 
 def unixtime():
@@ -155,7 +164,6 @@ def smart_autocomplete(prompt: str, strings: list[str]) -> str:
     return ''.join(buffer)
 
 
-
 class Timer:
     # This class handles the open timer, which can be serialized and stored
     # into a file, usually located in ~/.config/work (defined by self.wdir).
@@ -175,7 +183,7 @@ class Timer:
     timer: dict
     timer_path: str
 
-    def __init__(self, wdir: str, editor=None) -> None:
+    def __init__(self, wdir: str, repos: dict, editor=None) -> None:
         # Read or create the timer file if it does not exist.
         # wdir - working directory
         # editor - path to a editor, or None
@@ -190,6 +198,7 @@ class Timer:
         self.wdir = wdir
         self.project = self.recognize_project()
         self.editor = editor
+        self.repos = repos
         self.timer = {
             'stat': stat,
             'start': int(start),
@@ -237,25 +246,68 @@ class Timer:
                 ' To fix this define the editor under [settings].')
         os.system(f'{self.editor} {self.wdir}/projects/{self.project}')
 
-    def list(self):
-        # List the saved hours.
+    def list(self, options: list):
+        # List the saved sessions in the current project.
+        # --short    only a single line for each session
+        # --sum      sum all the hours
         data = read_file('projects/' + self.project)
         if not data:
             err('Project empty')
 
+        total_h, total_m = 0, 0
+
         ok(f'Sessions for the `\033[93m{self.project}\033[0m` project')
         for line in data.strip().splitlines():
+            repos = []
             date, hours, title = line.split(' ', 2)
             _, end_date = date.split('/', 1)
-            if '<&&&>' in title:
-                title, _ = title.split('<&&&>', 1)
+
+            if COMMIT_SPLIT in title:
+                # This still needs to be here for backwards compatibility.
+                # For some reason, I split BOTH the repositories and commits
+                # with <&&&>. I have no idea why I did this but it doesn't
+                # work.
+                if REPO_SPLIT in title:
+                    title, rest = title.split(REPO_SPLIT, 1)
+                    repos = rest.split(REPO_SPLIT)
+                else:
+                    title, repos = title.split(COMMIT_SPLIT, 1)
+                    repos = [repos]
+
             h, m, _ = hours.split(':')
+            if '--sum' in options:
+                total_h += int(h)
+                total_m += int(m)
+
+            # If the --short parameter is passed, print the minimal info
+            if '--short' in options:
+                print(f'\033[96m{hours}\033[0m - {title}')
+                continue
 
             time_fmt = f'{int(h)} hour(s) and {int(m)} minute(s)'
             print(
+                '-' * 70 + '\n'
                 f'\033[92m{end_date} - \033[96m{time_fmt}\033[0m\n'
-                f'    {title}'
+                f'  {title}'
             )
+
+            # Sort out commits formatting
+            if not repos:
+                continue
+            for repo in repos:
+                commits = repo.split(COMMIT_SPLIT)
+                name = commits[0]
+                commits = commits[1:]
+                print('  ' + name)
+                for commit in commits:
+                    commit_id, msg = commit.split(' ', 1)
+                    print(f'    \033[93m{commit_id}\033[0m {msg}')
+
+        if '--sum' in options:
+            print(f'\n      Sum: \033[96m{total_h} hour(s) and {total_m} '
+                    'minute(s)')
+        if '--short' not in options:
+            print()
 
     def cmdline_stop(self) -> str:
         # Get a title from the user on the command line.
@@ -311,6 +363,8 @@ class Timer:
         if not title:
             err('Empty title, cannot stop')
 
+        start_time = self.timer['start']
+
         self.timer['start'] = 0
         self.timer['paused_for'] = 0
         self.timer['last_pause'] = 0
@@ -325,6 +379,32 @@ class Timer:
         if not os.path.isdir(self.wdir + '/projects'):
             os.remove(self.wdir + '/projects')
             os.mkdir(self.wdir + '/projects')
+
+        # Add any git repositories, but only from the current project
+        if self.project in self.repos:
+            for repo in self.repos[self.project]:
+                if not os.path.isdir(repo):
+                    warn('Could not find repository:', repo)
+                    continue
+                if not os.path.isdir(repo + '/.git'):
+                    warn(repo, 'is not a git repository')
+                    continue
+
+                # Get the commits made during that time
+                os.system(
+                    f'cd {repo}; git log --oneline --since={start_time} '
+                    f'> {self.wdir}/__tmp'
+                )
+
+                # Note that this is not the best format for storing commit
+                # messages, but it works. The <&&&> string splits commits
+                # and the path to the repository, while <%%%> splits
+                # repositories.
+                commits = str(read_file('__tmp')).splitlines()
+                if commits:
+                    fmt += REPO_SPLIT + repo + COMMIT_SPLIT + COMMIT_SPLIT.join(commits)
+                os.remove(self.wdir + '/__tmp')
+
         with open(self.wdir + '/projects/' + self.project, 'a') as f:
             f.write(fmt + '\n')
 
@@ -433,6 +513,7 @@ def usage():
     print('\n'.join(help_lines))
     exit()
 
+
 def version():
     # Print the version and exit.
     print(f'work {__version__[0]}.{__version__[1]}')
@@ -454,7 +535,8 @@ def load_config() -> dict:
     # Load the config.ini file.
     config = {
         'editor': None,
-        'aliases': {}
+        'aliases': {},
+        'repos': {}
     }
 
     parser = configparser.ConfigParser()
@@ -484,6 +566,12 @@ def load_config() -> dict:
             aliases = [x.strip() for x in v.split(',')]
             for a in aliases:
                 config['aliases'][a] = k
+
+    if 'git' in parser.sections():
+        for k, v in dict(parser['git']).items():
+            v = v.replace('$(HOME)', str(os.getenv('HOME')))
+            repos = [x.strip() for x in v.split(',')]
+            config['repos'][k] = repos
 
     return config
 
@@ -525,9 +613,9 @@ def update():
     if not source_code:
         err('Failed to update')
 
-    write_file('_tmp_source', source_code)
-    os.rename(WORK_DIR + '/_tmp_source', __file__)
-    os.remove(WORK_DIR + '/_tmp_source')
+    write_file('__tmp', source_code)
+    os.rename(WORK_DIR + '/__tmp', __file__)
+    os.remove(WORK_DIR + '/__tmp')
 
 
 def detect_work1() -> bool:
@@ -591,7 +679,7 @@ def main():
 
     config = load_config()
 
-    timer = Timer(WORK_DIR, editor=config['editor'])
+    timer = Timer(WORK_DIR, repos=config['repos'], editor=config['editor'])
     actions = {
         'edit': timer.edit,
         'help': usage,
@@ -606,15 +694,24 @@ def main():
         'version': version,
     }
 
-    for action in sys.argv[1:]:
-        # Check aliases
-        if action in config['aliases']:
-            action = config['aliases'][action]
+    takes_options = ('list')
 
-        if action in actions:
-            actions[action]()
+    action = sys.argv[1]
+    options = []
+    if len(sys.argv) > 2:
+        options = sys.argv[2:]
+
+    # Check aliases
+    if action in config['aliases']:
+        action = config['aliases'][action]
+
+    if action in actions:
+        if action in takes_options:
+            actions[action](options)
         else:
-            warn('Unknown action:', action)
+            actions[action]()
+    else:
+        warn('Unknown action:', action)
 
     timer.close()
 
