@@ -38,7 +38,10 @@ import re
 #   session in a single line, and the sum options sums up all hours.
 # - Support git commits which get saved to the fil.
 
-__version__ = (2, 4)
+# Changes in 2.5
+# - Fix bug where we tried to remove a directory which did not exist
+
+__version__ = (2, 5)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
@@ -377,7 +380,6 @@ class Timer:
 
         # Save the session into a project file
         if not os.path.isdir(self.wdir + '/projects'):
-            os.remove(self.wdir + '/projects')
             os.mkdir(self.wdir + '/projects')
 
         # Add any git repositories, but only from the current project
