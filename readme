@@ -1,6 +1,11 @@
 work
+----
 
-work is a small app for keeping track of your worked hours. In the morning
-you may simply `work start` and `work stop` at the end of the day.
+work is a small Python app which helps you track your time when working.
+It offers support multiple projects, flexible timer control with a very
+simple interface, along with git integration. See `work help` for a quick
+rundown of what you can do.
 
-To leave for lunch, run `work pause` and `work resume` after.
+For autocomplete in zsh, run these commands & restart the terminal:
+
+	su -c 'cp ./zshcomplete.zsh /usr/share/zsh/functions/Completion/Unix/_work'
