@@ -41,7 +41,10 @@ import re
 # Changes in 2.5
 # - Fix bug where we tried to remove a directory which did not exist
 
-__version__ = (2, 5)
+# Changes in 2.6
+# - Fix bug where there could be more than 60 minutes in list --sum
+
+__version__ = (2, 6)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
@@ -281,6 +284,8 @@ class Timer:
             if '--sum' in options:
                 total_h += int(h)
                 total_m += int(m)
+                total_h += int((total_m - (total_m % 60)) / 60)
+                total_m = total_m % 60
 
             # If the --short parameter is passed, print the minimal info
             if '--short' in options:
