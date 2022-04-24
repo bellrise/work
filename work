@@ -15,7 +15,7 @@ import sys
 import os
 import re
 
-# Changes in 2.1
+# 2.1
 # - Fixed error messages
 # - Better file system update from work1
 # - Pausing/resuming
@@ -24,27 +24,31 @@ import re
 # - Configuration file (config.ini)
 # - `work stop` now can be opened in an editor
 
-# Changes in 2.2
+# 2.2
 # - Added projects
 # - Changed file system structure
 # - `work switch` to switch projects
 # - `work list` for listing sessions
 
-# Changes in 2.3
+# 2.3
 # - Added super basic `work edit` command
 
-# Changes in 2.4
+# 2.4
 # - Add --short and --sum option to `work list`. The first one prints each
 #   session in a single line, and the sum options sums up all hours.
 # - Support git commits which get saved to the fil.
 
-# Changes in 2.5
+# 2.5
 # - Fix bug where we tried to remove a directory which did not exist
 
-# Changes in 2.6
+# 2.6
 # - Fix bug where there could be more than 60 minutes in list --sum
 
-__version__ = (2, 6)
+# 2.7
+# - Read the full path of the file, because symlinks would break the update()
+#   function.
+
+__version__ = (2, 7)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
@@ -621,8 +625,8 @@ def update():
         err('Failed to update')
 
     write_file('__tmp', source_code)
-    os.rename(WORK_DIR + '/__tmp', __file__)
-    os.remove(WORK_DIR + '/__tmp')
+    os.rename(WORK_DIR + '/__tmp', os.path.realpath(__file__))
+    os.system(f'chmod +x {os.path.realpath(__file__)}')
 
 
 def detect_work1() -> bool:
