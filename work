@@ -310,7 +310,7 @@ class Timer:
                 commits = repo.split(COMMIT_SPLIT)
                 name = commits[0]
                 commits = commits[1:]
-                print('  ' + name)
+                print(f'  \033[35m{name}\033[0m')
                 for commit in commits:
                     commit_id, msg = commit.split(' ', 1)
                     print(f'    \033[93m{commit_id}\033[0m {msg}')
