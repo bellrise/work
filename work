@@ -378,7 +378,10 @@ class Timer:
             err('Cannot stop, timer isn\'t running')
 
         # We need to resume the timer before we stop it.
-        self.resume(in_background=True)
+        if self.timer['stat'] == self.STAT_PAUSED:
+            paused_for = unixtime() - self.timer['last_pause']
+            self.timer['last_pause'] = 0
+            self.timer['paused_for'] += paused_for
 
         self.timer['stat'] = self.STAT_STOPPED
         elapsed_time = unixtime() - self.timer['start'] \
@@ -474,7 +477,7 @@ class Timer:
         write_file('project', value)
         ok(f'Switched to `{value}`')
 
-    def resume(self, in_background=False):
+    def resume(self):
         # Resume the timer.
         if self.timer['stat'] == self.STAT_STOPPED:
             err('Cannot resume, timer isn\'t running')
@@ -485,9 +488,6 @@ class Timer:
         self.timer['last_pause'] = 0
         self.timer['paused_for'] += paused_for
         self.timer['stat'] = self.STAT_RUNNING
-
-        if not in_background:
-            ok('Resumed')
 
     def elapsed_time(self):
         # Format the running time in a nice way.
