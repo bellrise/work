@@ -51,7 +51,10 @@ import re
 # 2.8
 # - Add -s for --sum and -o for --short in `work list`
 
-__version__ = (2, 8)
+# 2.9
+# - Fix stopping while paused.
+
+__version__ = (2, 9)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
@@ -373,14 +376,15 @@ class Timer:
         # Stop the timer
         if self.timer['stat'] == self.STAT_STOPPED:
             err('Cannot stop, timer isn\'t running')
+
+        # We need to resume the timer before we stop it.
+        self.resume(in_background=True)
+
         self.timer['stat'] = self.STAT_STOPPED
         elapsed_time = unixtime() - self.timer['start'] \
                 - self.timer['paused_for']
 
-        if not self.editor:
-            title = self.cmdline_stop()
-        else:
-            title = self.editor_stop()
+        title = self.editor_stop() if self.editor else self.cmdline_stop()
 
         if not title:
             err('Empty title, cannot stop')
@@ -470,7 +474,7 @@ class Timer:
         write_file('project', value)
         ok(f'Switched to `{value}`')
 
-    def resume(self):
+    def resume(self, in_background=False):
         # Resume the timer.
         if self.timer['stat'] == self.STAT_STOPPED:
             err('Cannot resume, timer isn\'t running')
@@ -482,7 +486,8 @@ class Timer:
         self.timer['paused_for'] += paused_for
         self.timer['stat'] = self.STAT_RUNNING
 
-        ok('Resumed')
+        if not in_background:
+            ok('Resumed')
 
     def elapsed_time(self):
         # Format the running time in a nice way.
