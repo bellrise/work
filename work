@@ -54,14 +54,16 @@ import re
 # 2.9
 # - Fix stopping while paused.
 
-__version__ = (2, 9)
+# 2.10
+# - Add commits to `work stop`.
+
+__version__ = (2, 10)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
 
 REPO_SPLIT   = '<%%%>'
 COMMIT_SPLIT = '<&&&>'
-
 
 
 def unixtime():
@@ -130,7 +132,7 @@ def smart_autocomplete(prompt: str, strings: list[str]) -> str:
         print(f'\033[2K\r{prompt}{now}', end='', flush=True)
         if offer:
             print(f'\033[90m{offer}\033[0m\033[{len(offer)}D', end='',
-                    flush=True)
+                  flush=True)
 
         try:
             c = sys.stdin.read(1)
@@ -330,7 +332,7 @@ class Timer:
 
         if any_in(('-s', '--sum'), options):
             print(f'\n      Sum: \033[96m{total_h} hour(s) and {total_m} '
-                    'minute(s)')
+                  'minute(s)')
         if not any_in(('-o', '--short'), options):
             print()
 
@@ -349,7 +351,7 @@ class Timer:
         print('\033[0m', end='')
         return title
 
-    def editor_stop(self) -> str:
+    def editor_stop(self, commit_map: dict) -> str:
         # Get a title from the user, opening the preffered editor
         # of choice.
         p = self.wdir + '/COMMIT_EDITMSG'
@@ -361,6 +363,14 @@ class Timer:
             f'# On project `{self.project}`\n\n' \
             '# Only the first line of this file will be counted as\n' \
             '# the title. Leave it empty to cancel.'
+
+        # Add the commit list
+        if commit_map:
+            text += '\n\n# Commits:\n'
+            for repo, commits in commit_map.items():
+                text += f'# {repo}\n'
+                for commit in commits:
+                    text += f'#   {commit}\n'
 
         write_file('COMMIT_EDITMSG', text)
 
@@ -385,28 +395,12 @@ class Timer:
 
         self.timer['stat'] = self.STAT_STOPPED
         elapsed_time = unixtime() - self.timer['start'] \
-                - self.timer['paused_for']
-
-        title = self.editor_stop() if self.editor else self.cmdline_stop()
-
-        if not title:
-            err('Empty title, cannot stop')
+            - self.timer['paused_for']
 
         start_time = self.timer['start']
 
-        self.timer['start'] = 0
-        self.timer['paused_for'] = 0
-        self.timer['last_pause'] = 0
-
-        m, s = divmod(elapsed_time, 60)
-        h, m = divmod(m, 60)
-
-        time_str = time.strftime('%H:%M/%d/%m/%y')
-        fmt = f'{time_str} {h:02}:{m:02}:{s:02} {title}'
-
-        # Save the session into a project file
-        if not os.path.isdir(self.wdir + '/projects'):
-            os.mkdir(self.wdir + '/projects')
+        all_commits = {}
+        fmt = ''
 
         # Add any git repositories, but only from the current project
         if self.project in self.repos:
@@ -430,8 +424,27 @@ class Timer:
                 # repositories.
                 commits = str(read_file('__tmp')).splitlines()
                 if commits:
+                    all_commits[repo] = commits
                     fmt += REPO_SPLIT + repo + COMMIT_SPLIT + COMMIT_SPLIT.join(commits)
                 os.remove(self.wdir + '/__tmp')
+
+        title = self.editor_stop(all_commits) if self.editor else self.cmdline_stop()
+        if not title:
+            err('Empty title, cannot stop')
+
+        self.timer['start'] = 0
+        self.timer['paused_for'] = 0
+        self.timer['last_pause'] = 0
+
+        m, s = divmod(elapsed_time, 60)
+        h, m = divmod(m, 60)
+
+        time_str = time.strftime('%H:%M/%d/%m/%y')
+        fmt = f'{time_str} {h:02}:{m:02}:{s:02} {title}' + fmt
+
+        # Save the session into a project file
+        if not os.path.isdir(self.wdir + '/projects'):
+            os.mkdir(self.wdir + '/projects')
 
         with open(self.wdir + '/projects/' + self.project, 'a') as f:
             f.write(fmt + '\n')
