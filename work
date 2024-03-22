@@ -57,7 +57,10 @@ import re
 # 2.10
 # - Add commits to `work stop`.
 
-__version__ = (2, 10)
+# 2.11
+# - Allow placing repos on multiple lines.
+
+__version__ = (2, 11)
 
 WORK_DIR   = os.environ['HOME'] + '/.config/work'
 REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
@@ -403,30 +406,29 @@ class Timer:
         fmt = ''
 
         # Add any git repositories, but only from the current project
-        if self.project in self.repos:
-            for repo in self.repos[self.project]:
-                if not os.path.isdir(repo):
-                    warn('Could not find repository:', repo)
-                    continue
-                if not os.path.isdir(repo + '/.git'):
-                    warn(repo, 'is not a git repository')
-                    continue
+        for repo in self.repos['default']:
+            if not os.path.isdir(repo):
+                warn('Could not find repository:', repo)
+                continue
+            if not os.path.isdir(repo + '/.git'):
+                warn(repo, 'is not a git repository')
+                continue
 
-                # Get the commits made during that time
-                os.system(
-                    f'cd {repo}; git log --oneline --since={start_time} '
-                    f'> {self.wdir}/__tmp'
-                )
+            # Get the commits made during that time
+            os.system(
+                f'cd {repo}; git log --oneline --since={start_time} '
+                f'> {self.wdir}/__tmp'
+            )
 
-                # Note that this is not the best format for storing commit
-                # messages, but it works. The <&&&> string splits commits
-                # and the path to the repository, while <%%%> splits
-                # repositories.
-                commits = str(read_file('__tmp')).splitlines()
-                if commits:
-                    all_commits[repo] = commits
-                    fmt += REPO_SPLIT + repo + COMMIT_SPLIT + COMMIT_SPLIT.join(commits)
-                os.remove(self.wdir + '/__tmp')
+            # Note that this is not the best format for storing commit
+            # messages, but it works. The <&&&> string splits commits
+            # and the path to the repository, while <%%%> splits
+            # repositories.
+            commits = str(read_file('__tmp')).splitlines()
+            if commits:
+                all_commits[repo] = commits
+                fmt += REPO_SPLIT + repo + COMMIT_SPLIT + COMMIT_SPLIT.join(commits)
+            os.remove(self.wdir + '/__tmp')
 
         title = self.editor_stop(all_commits) if self.editor else self.cmdline_stop()
         if not title:
@@ -606,11 +608,13 @@ def load_config() -> dict:
             for a in aliases:
                 config['aliases'][a] = k
 
+    config['repos']['default'] = []
+
     if 'git' in parser.sections():
         for k, v in dict(parser['git']).items():
             v = v.replace('$(HOME)', str(os.getenv('HOME')))
             repos = [x.strip() for x in v.split(',')]
-            config['repos'][k] = repos
+            config['repos']['default'].extend(repos)
 
     return config
 
