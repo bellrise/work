@@ -60,13 +60,16 @@ import re
 # 2.11
 # - Allow placing repos on multiple lines.
 
-__version__ = (2, 11)
+# 2.12
+# - Added `work status --raw` to use in scripts
 
-WORK_DIR   = os.environ['HOME'] + '/.config/work'
-REPOSITORY = 'https://raw.githubusercontent.com/bellrise/work/master'
+__version__ = (2, 12)
 
-REPO_SPLIT   = '<%%%>'
-COMMIT_SPLIT = '<&&&>'
+WORK_DIR = os.environ["HOME"] + "/.config/work"
+REPOSITORY = "https://raw.githubusercontent.com/bellrise/work/master"
+
+REPO_SPLIT = "<%%%>"
+COMMIT_SPLIT = "<&&&>"
 
 
 def unixtime():
@@ -75,7 +78,7 @@ def unixtime():
 
 def _print_info(clr: str, *msgs):
     msgs = [str(x) for x in msgs]
-    print(f'\033[{clr}\033[0m', *msgs)
+    print(f"\033[{clr}\033[0m", *msgs)
 
 
 def any_in(of, in_list):
@@ -85,27 +88,27 @@ def any_in(of, in_list):
     return False
 
 
-ok   = lambda *msgs: _print_info('92m*', *msgs)
-warn = lambda *msgs: _print_info('93m?', *msgs)
-net  = lambda *msgs: _print_info('96m⤓', *msgs)
+ok = lambda *msgs: _print_info("92m*", *msgs)
+warn = lambda *msgs: _print_info("93m?", *msgs)
+net = lambda *msgs: _print_info("96m⤓", *msgs)
 
 
 def err(*msgs):
-    _print_info('91m!', *msgs)
+    _print_info("91m!", *msgs)
     exit()
 
 
 def read_file(path: str) -> Union[str, None]:
     # Read a file from the working directory.
-    if not os.path.exists(WORK_DIR + '/' + path):
+    if not os.path.exists(WORK_DIR + "/" + path):
         return None
-    with open(WORK_DIR + '/' + path) as f:
+    with open(WORK_DIR + "/" + path) as f:
         return f.read()
 
 
 def write_file(path: str, contents: str):
     # Create a file in the working directory.
-    with open(WORK_DIR + '/' + path, 'w') as f:
+    with open(WORK_DIR + "/" + path, "w") as f:
         f.write(contents)
 
 
@@ -120,22 +123,23 @@ def smart_autocomplete(prompt: str, strings: list[str]) -> str:
     termios.tcsetattr(fd, termios.TCSANOW, new_settings)
 
     buffer = []
-    offer = ''
+    offer = ""
 
     while True:
-        now = ''.join(buffer)
+        now = "".join(buffer)
 
         # Guess what the user is trying to type
-        offer = ''
+        offer = ""
         for string in strings:
             if string.startswith(now):
-                offer = string[len(now):]
+                offer = string[len(now) :]
                 break
 
-        print(f'\033[2K\r{prompt}{now}', end='', flush=True)
+        print(f"\033[2K\r{prompt}{now}", end="", flush=True)
         if offer:
-            print(f'\033[90m{offer}\033[0m\033[{len(offer)}D', end='',
-                  flush=True)
+            print(
+                f"\033[90m{offer}\033[0m\033[{len(offer)}D", end="", flush=True
+            )
 
         try:
             c = sys.stdin.read(1)
@@ -143,27 +147,27 @@ def smart_autocomplete(prompt: str, strings: list[str]) -> str:
             buffer = []
             break
 
-        if c in ['\x7f', '\b'] and buffer:
+        if c in ["\x7f", "\b"] and buffer:
             # Remove one char
             buffer.pop()
             continue
 
-        if c == '\x17':
+        if c == "\x17":
             # Remove last word
-            whole = ''.join(buffer).strip()
+            whole = "".join(buffer).strip()
             if not whole:
                 continue
-            whole = whole[:-(len(whole.split()[-1]) + 1)]
+            whole = whole[: -(len(whole.split()[-1]) + 1)]
             buffer = list(whole)
             continue
 
-        if c == '\x0c':
+        if c == "\x0c":
             # Clear the page
-            print('\033[2J\033[0;0H', end='', flush=True)
+            print("\033[2J\033[0;0H", end="", flush=True)
             continue
 
         # Handle escape sequences
-        if c == '\x1b':
+        if c == "\x1b":
             try:
                 if sys.stdin.read(3)[2] not in _string.ascii_letters:
                     sys.stdin.read(1)
@@ -172,11 +176,11 @@ def smart_autocomplete(prompt: str, strings: list[str]) -> str:
                 break
             continue
 
-        if c in ['\n', '\r']:
+        if c in ["\n", "\r"]:
             # Finish the input
             break
 
-        if c == '\t':
+        if c == "\t":
             # Don't accept tabs if there is no offer to accept. Otherwise,
             # fill the buffer with the rest of the accepted chars.
             if not offer:
@@ -188,8 +192,8 @@ def smart_autocomplete(prompt: str, strings: list[str]) -> str:
             buffer.append(c)
 
     termios.tcsetattr(fd, termios.TCSANOW, old_settings)
-    print('\r')
-    return ''.join(buffer)
+    print("\r")
+    return "".join(buffer)
 
 
 class Timer:
@@ -203,9 +207,9 @@ class Timer:
 
     # Status of the timer. These values are presented in a human-readable form,
     # so you can read the file and know what's going on.
-    STAT_STOPPED = 'stopped'
-    STAT_RUNNING = 'running'
-    STAT_PAUSED  = 'paused'
+    STAT_STOPPED = "stopped"
+    STAT_RUNNING = "running"
+    STAT_PAUSED = "paused"
 
     # Container for storing the timer data
     timer: dict
@@ -215,80 +219,87 @@ class Timer:
         # Read or create the timer file if it does not exist.
         # wdir - working directory
         # editor - path to a editor, or None
-        if not os.path.exists(wdir + '/timer'):
-            write_file('timer', self.timer_fmt(self.STAT_STOPPED))
-        raw_data = read_file('timer')
-        if not raw_data or raw_data.count(':') != 3:
+        if not os.path.exists(wdir + "/timer"):
+            write_file("timer", self.timer_fmt(self.STAT_STOPPED))
+        raw_data = read_file("timer")
+        if not raw_data or raw_data.count(":") != 3:
             raw_data = self.timer_fmt(self.STAT_STOPPED)
 
-        stat, start, last_pause, paused_for = raw_data.split(':')
+        stat, start, last_pause, paused_for = raw_data.split(":")
 
         self.wdir = wdir
         self.project = self.recognize_project()
         self.editor = editor
         self.repos = repos
         self.timer = {
-            'stat': stat,
-            'start': int(start),
-            'last_pause': int(last_pause),
-            'paused_for': int(paused_for)
+            "stat": stat,
+            "start": int(start),
+            "last_pause": int(last_pause),
+            "paused_for": int(paused_for),
         }
 
     @staticmethod
     def timer_fmt(stat, start_=0, last_pause=0, paused_for=0):
         # Format the parameters to create the timer string that will
         # be put in the `timer` file.
-        start_, last_pause, paused_for = [str(x) for x in
-                (start_, last_pause, paused_for)]
-        return f'{stat}:{start_}:{last_pause}:{paused_for}'
+        start_, last_pause, paused_for = [
+            str(x) for x in (start_, last_pause, paused_for)
+        ]
+        return f"{stat}:{start_}:{last_pause}:{paused_for}"
 
     def recognize_project(self) -> str:
         # Return the project name. If no `project` file is found,
         # result to `default`.
-        p = read_file('project')
+        p = read_file("project")
         if p:
             return p
-        write_file('project', 'default')
-        return 'default'
+        write_file("project", "default")
+        return "default"
 
     def close(self):
         # Automatically save the changes to the file.
-        fmt = self.timer_fmt(self.timer['stat'], self.timer['start'],
-                self.timer['last_pause'], self.timer['paused_for'])
-        write_file('timer', fmt)
+        fmt = self.timer_fmt(
+            self.timer["stat"],
+            self.timer["start"],
+            self.timer["last_pause"],
+            self.timer["paused_for"],
+        )
+        write_file("timer", fmt)
 
     def start(self):
         # Start the timer
-        if self.timer['stat'] in [self.STAT_RUNNING, self.STAT_PAUSED]:
-            err('Cannot start timer, already running')
+        if self.timer["stat"] in [self.STAT_RUNNING, self.STAT_PAUSED]:
+            err("Cannot start timer, already running")
 
-        self.timer['stat'] = self.STAT_RUNNING
-        self.timer['start'] = unixtime()
+        self.timer["stat"] = self.STAT_RUNNING
+        self.timer["start"] = unixtime()
 
-        ok('Started the timer')
+        ok("Started the timer")
 
     def edit(self):
         # Edit the session file using the user-defined editor.
         if not self.editor:
-            err('No editor defined in config.ini\n',
-                ' To fix this define the editor under [settings].')
-        os.system(f'{self.editor} {self.wdir}/projects/{self.project}')
+            err(
+                "No editor defined in config.ini\n",
+                " To fix this define the editor under [settings].",
+            )
+        os.system(f"{self.editor} {self.wdir}/projects/{self.project}")
 
     def list(self, options: list):
         # List the saved sessions in the current project.
         # -o, --short   only a single line for each session
         # -s, --sum     sum all the hours
-        data = read_file('projects/' + self.project)
+        data = read_file("projects/" + self.project)
         if not data:
-            err('Project empty')
+            err("Project empty")
 
         total_h, total_m = 0, 0
 
-        ok(f'Sessions for the `\033[93m{self.project}\033[0m` project')
+        ok(f"Sessions for the `\033[93m{self.project}\033[0m` project")
         for line in data.strip().splitlines():
             repos = []
-            date, hours, title = line.split(' ', 2)
-            _, end_date = date.split('/', 1)
+            date, hours, title = line.split(" ", 2)
+            _, end_date = date.split("/", 1)
 
             if COMMIT_SPLIT in title:
                 # This still needs to be here for backwards compatibility.
@@ -302,23 +313,23 @@ class Timer:
                     title, repos = title.split(COMMIT_SPLIT, 1)
                     repos = [repos]
 
-            h, m, _ = hours.split(':')
-            if any_in(('-s', '--sum'), options):
+            h, m, _ = hours.split(":")
+            if any_in(("-s", "--sum"), options):
                 total_h += int(h)
                 total_m += int(m)
                 total_h += int((total_m - (total_m % 60)) / 60)
                 total_m = total_m % 60
 
             # If the --short parameter is passed, print the minimal info
-            if any_in(('-o', '--short'), options):
-                print(f'\033[96m{hours}\033[0m - {title}')
+            if any_in(("-o", "--short"), options):
+                print(f"\033[96m{hours}\033[0m - {title}")
                 continue
 
-            time_fmt = f'{int(h)} hour(s) and {int(m)} minute(s)'
+            time_fmt = f"{int(h)} hour(s) and {int(m)} minute(s)"
             print(
-                '-' * 70 + '\n'
-                f'\033[92m{end_date} - \033[96m{time_fmt}\033[0m\n'
-                f'  {title}'
+                "-" * 70 + "\n"
+                f"\033[92m{end_date} - \033[96m{time_fmt}\033[0m\n"
+                f"  {title}"
             )
 
             # Sort out commits formatting
@@ -328,293 +339,319 @@ class Timer:
                 commits = repo.split(COMMIT_SPLIT)
                 name = commits[0]
                 commits = commits[1:]
-                print(f'  \033[35m{name}\033[0m')
+                print(f"  \033[35m{name}\033[0m")
                 for commit in commits:
-                    commit_id, msg = commit.split(' ', 1)
-                    print(f'    \033[93m{commit_id}\033[0m {msg}')
+                    commit_id, msg = commit.split(" ", 1)
+                    print(f"    \033[93m{commit_id}\033[0m {msg}")
 
-        if any_in(('-s', '--sum'), options):
-            print(f'\n      Sum: \033[96m{total_h} hour(s) and {total_m} '
-                  'minute(s)')
-        if not any_in(('-o', '--short'), options):
+        if any_in(("-s", "--sum"), options):
+            print(
+                f"\n      Sum: \033[96m{total_h} hour(s) and {total_m} "
+                "minute(s)"
+            )
+        if not any_in(("-o", "--short"), options):
             print()
 
     def cmdline_stop(self) -> str:
         # Get a title from the user on the command line.
-        ok('End session of', self.elapsed_time())
+        ok("End session of", self.elapsed_time())
         print(
-            f'  In project `\033[93m{self.project}\033[0m`\n',
-            ' Leave empty to cancel'
+            f"  In project `\033[93m{self.project}\033[0m`\n",
+            " Leave empty to cancel",
         )
         try:
-            title = input(': \033[96m')
+            title = input(": \033[96m")
         except KeyboardInterrupt:
-            ok('Cancelled stop')
-            return ''
-        print('\033[0m', end='')
+            ok("Cancelled stop")
+            return ""
+        print("\033[0m", end="")
         return title
 
     def editor_stop(self, commit_map: dict) -> str:
         # Get a title from the user, opening the preffered editor
         # of choice.
-        p = self.wdir + '/COMMIT_EDITMSG'
+        p = self.wdir + "/COMMIT_EDITMSG"
 
         # Prepare the file
-        text = \
-            '\n\n' \
-            f'# {self.elapsed_time()}\n' \
-            f'# On project `{self.project}`\n\n' \
-            '# Only the first line of this file will be counted as\n' \
-            '# the title. Leave it empty to cancel.'
+        text = (
+            "\n\n"
+            f"# {self.elapsed_time()}\n"
+            f"# On project `{self.project}`\n\n"
+            "# Only the first line of this file will be counted as\n"
+            "# the title. Leave it empty to cancel."
+        )
 
         # Add the commit list
         if commit_map:
-            text += '\n\n# Commits:\n'
+            text += "\n\n# Commits:\n"
             for repo, commits in commit_map.items():
-                text += f'# {repo}\n'
+                text += f"# {repo}\n"
                 for commit in commits:
-                    text += f'#   {commit}\n'
+                    text += f"#   {commit}\n"
 
-        write_file('COMMIT_EDITMSG', text)
+        write_file("COMMIT_EDITMSG", text)
 
-        os.system(f'{self.editor} {p}')
+        os.system(f"{self.editor} {p}")
         with open(p) as f:
             msg = f.readline().strip()
-            if msg.startswith('#'):
-                msg = ''
-        os.system(f'rm -f {p}')
+            if msg.startswith("#"):
+                msg = ""
+        os.system(f"rm -f {p}")
         return msg
 
     def stop(self):
         # Stop the timer
-        if self.timer['stat'] == self.STAT_STOPPED:
-            err('Cannot stop, timer isn\'t running')
+        if self.timer["stat"] == self.STAT_STOPPED:
+            err("Cannot stop, timer isn't running")
 
         # We need to resume the timer before we stop it.
-        if self.timer['stat'] == self.STAT_PAUSED:
-            paused_for = unixtime() - self.timer['last_pause']
-            self.timer['last_pause'] = 0
-            self.timer['paused_for'] += paused_for
+        if self.timer["stat"] == self.STAT_PAUSED:
+            paused_for = unixtime() - self.timer["last_pause"]
+            self.timer["last_pause"] = 0
+            self.timer["paused_for"] += paused_for
 
-        self.timer['stat'] = self.STAT_STOPPED
-        elapsed_time = unixtime() - self.timer['start'] \
-            - self.timer['paused_for']
+        self.timer["stat"] = self.STAT_STOPPED
+        elapsed_time = (
+            unixtime() - self.timer["start"] - self.timer["paused_for"]
+        )
 
-        start_time = self.timer['start']
+        start_time = self.timer["start"]
 
         all_commits = {}
-        fmt = ''
+        fmt = ""
 
         # Add any git repositories, but only from the current project
-        for repo in self.repos['default']:
+        for repo in self.repos["default"]:
             if not os.path.isdir(repo):
-                warn('Could not find repository:', repo)
+                warn("Could not find repository:", repo)
                 continue
-            if not os.path.isdir(repo + '/.git'):
-                warn(repo, 'is not a git repository')
+            if not os.path.isdir(repo + "/.git"):
+                warn(repo, "is not a git repository")
                 continue
 
             # Get the commits made during that time
             os.system(
-                f'cd {repo}; git log --oneline --since={start_time} '
-                f'> {self.wdir}/__tmp'
+                f"cd {repo}; git log --oneline --since={start_time} "
+                f"> {self.wdir}/__tmp"
             )
 
             # Note that this is not the best format for storing commit
             # messages, but it works. The <&&&> string splits commits
             # and the path to the repository, while <%%%> splits
             # repositories.
-            commits = str(read_file('__tmp')).splitlines()
+            commits = str(read_file("__tmp")).splitlines()
             if commits:
                 all_commits[repo] = commits
-                fmt += REPO_SPLIT + repo + COMMIT_SPLIT + COMMIT_SPLIT.join(commits)
-            os.remove(self.wdir + '/__tmp')
+                fmt += (
+                    REPO_SPLIT
+                    + repo
+                    + COMMIT_SPLIT
+                    + COMMIT_SPLIT.join(commits)
+                )
+            os.remove(self.wdir + "/__tmp")
 
-        title = self.editor_stop(all_commits) if self.editor else self.cmdline_stop()
+        title = (
+            self.editor_stop(all_commits)
+            if self.editor
+            else self.cmdline_stop()
+        )
         if not title:
-            err('Empty title, cannot stop')
+            err("Empty title, cannot stop")
 
-        self.timer['start'] = 0
-        self.timer['paused_for'] = 0
-        self.timer['last_pause'] = 0
+        self.timer["start"] = 0
+        self.timer["paused_for"] = 0
+        self.timer["last_pause"] = 0
 
         m, s = divmod(elapsed_time, 60)
         h, m = divmod(m, 60)
 
-        time_str = time.strftime('%H:%M/%d/%m/%y')
-        fmt = f'{time_str} {h:02}:{m:02}:{s:02} {title}' + fmt
+        time_str = time.strftime("%H:%M/%d/%m/%y")
+        fmt = f"{time_str} {h:02}:{m:02}:{s:02} {title}" + fmt
 
         # Save the session into a project file
-        if not os.path.isdir(self.wdir + '/projects'):
-            os.mkdir(self.wdir + '/projects')
+        if not os.path.isdir(self.wdir + "/projects"):
+            os.mkdir(self.wdir + "/projects")
 
-        with open(self.wdir + '/projects/' + self.project, 'a') as f:
-            f.write(fmt + '\n')
+        with open(self.wdir + "/projects/" + self.project, "a") as f:
+            f.write(fmt + "\n")
 
-        ok('Stopped the timer')
+        ok("Stopped the timer")
 
     def pause(self):
         # Pause the timer.
-        if self.timer['stat'] == self.STAT_STOPPED:
-            err('Cannot pause, timer isn\'t running')
-        if self.timer['stat'] == self.STAT_PAUSED:
-            warn('Already paused')
+        if self.timer["stat"] == self.STAT_STOPPED:
+            err("Cannot pause, timer isn't running")
+        if self.timer["stat"] == self.STAT_PAUSED:
+            warn("Already paused")
 
-        self.timer['stat'] = self.STAT_PAUSED
-        self.timer['last_pause'] = unixtime()
+        self.timer["stat"] = self.STAT_PAUSED
+        self.timer["last_pause"] = unixtime()
 
-        ok('Paused the timer')
+        ok("Paused the timer")
 
     def switch(self):
         # Switch to another project.
-        projects = os.listdir(self.wdir + '/projects')
-        print('Available projects:')
+        projects = os.listdir(self.wdir + "/projects")
+        print("Available projects:")
         for proj in projects:
             if proj == self.project:
-                print(f'\033[93m-> {self.project}\033[0m')
+                print(f"\033[93m-> {self.project}\033[0m")
             else:
-                print('   ' + proj)
+                print("   " + proj)
 
         # Select a project
-        value = smart_autocomplete('Select a project: ', projects)
+        value = smart_autocomplete("Select a project: ", projects)
         if not value or value == self.project:
-            ok(f'Already in `{self.project}`')
+            ok(f"Already in `{self.project}`")
             return
 
         if value not in projects:
             # Create a new project if the user types something new
-            regex = r'^[A-z_][A-z0-9_]*$'
+            regex = r"^[A-z_][A-z0-9_]*$"
             if not re.match(regex, value):
-                err(f'Invalid project name, must conform to /{regex}/')
-            write_file('projects/' + value, '')
+                err(f"Invalid project name, must conform to /{regex}/")
+            write_file("projects/" + value, "")
 
         # Switch to the given project
-        write_file('project', value)
-        ok(f'Switched to `{value}`')
+        write_file("project", value)
+        ok(f"Switched to `{value}`")
 
     def resume(self):
         # Resume the timer.
-        if self.timer['stat'] == self.STAT_STOPPED:
-            err('Cannot resume, timer isn\'t running')
-        if self.timer['stat'] == self.STAT_RUNNING:
-            err('Already resumed')
+        if self.timer["stat"] == self.STAT_STOPPED:
+            err("Cannot resume, timer isn't running")
+        if self.timer["stat"] == self.STAT_RUNNING:
+            err("Already resumed")
 
-        paused_for = unixtime() - self.timer['last_pause']
-        self.timer['last_pause'] = 0
-        self.timer['paused_for'] += paused_for
-        self.timer['stat'] = self.STAT_RUNNING
+        paused_for = unixtime() - self.timer["last_pause"]
+        self.timer["last_pause"] = 0
+        self.timer["paused_for"] += paused_for
+        self.timer["stat"] = self.STAT_RUNNING
 
-    def elapsed_time(self):
-        # Format the running time in a nice way.
-        since_start = unixtime() - self.timer['start']
-        if self.timer['stat'] == self.STAT_PAUSED:
-            since_start -= unixtime() - self.timer['last_pause']
-        elapsed = since_start - self.timer['paused_for']
+    def elapsed_seconds(self) -> int:
+        since_start = unixtime() - self.timer["start"]
+        if self.timer["stat"] == self.STAT_PAUSED:
+            since_start -= unixtime() - self.timer["last_pause"]
+        return since_start - self.timer["paused_for"]
+
+    def elapsed_time(self, time_fmt=None):
+        # Format the running time in a nice way. If time_fmt is passed,
+        # it gets formatted with time_fmt % (h, m, s)
+        elapsed = self.elapsed_seconds()
 
         m, s = divmod(elapsed, 60)
         h, m = divmod(m, 60)
 
-        ret = f'{m} minute(s) and {s} second(s)'
-        return ret if not h else f'{h} hour(s) and ' + ret
+        if not time_fmt:
+            ret = f"{m} minute(s) and {s} second(s)"
+            return ret if not h else f"{h} hour(s) and " + ret
 
-    def status(self):
+        return time_fmt % (h, m, s)
+
+    def status(self, options: list):
         # Show the status of the timer
-        ok(f'In project `{self.project}`')
-        s = self.timer['stat']
+
+        if any_in(("-r", "--raw"), options):
+            if self.timer["stat"] == self.STAT_STOPPED:
+                return print("stopped 00:00:00 0")
+            return print(
+                self.timer["stat"],
+                self.elapsed_time("%02d:%02d:%02d"),
+                self.elapsed_seconds(),
+            )
+
+        ok(f"In project `{self.project}`")
+        s = self.timer["stat"]
         if s == self.STAT_PAUSED:
-            ok('\033[93mPaused\033[0m, elapsed:', self.elapsed_time())
+            ok("\033[93mPaused\033[0m, elapsed:", self.elapsed_time())
         if s == self.STAT_STOPPED:
-            ok('\033[91mStopped\033[0m')
+            ok("\033[91mStopped\033[0m")
         if s == self.STAT_RUNNING:
-            ok('\033[92mRunning\033[0m, elapsed:', self.elapsed_time())
+            ok("\033[92mRunning\033[0m, elapsed:", self.elapsed_time())
 
 
 def usage():
     # Print the help page and exit.
     help_lines = (
-        'usage: work <action> [option]...\n',
-        'Keep track of worked hours.',
-        '\nActions:',
-        '  edit         edit the session list',
-        '  help         show the help page',
-        '  list         list the sessions in this project',
-        '  pause        pause the timer',
-        '  resume       resume the timer',
-        '  start        start the timer',
-        '  stop         stop the timer',
-        '  status       status of the timer',
-        '  switch       switch to another project',
-        '  update       check for updates',
-        '  version      version of `work`',
-        '\nOther:',
-        '  -h, --help       show the help page',
-        '  -v, --version    show the version',
+        "usage: work <action> [option]...\n",
+        "Keep track of worked hours.",
+        "\nActions:",
+        "  edit         edit the session list",
+        "  help         show the help page",
+        "  list         list the sessions in this project",
+        "  pause        pause the timer",
+        "  resume       resume the timer",
+        "  start        start the timer",
+        "  stop         stop the timer",
+        "  status       status of the timer",
+        "  switch       switch to another project",
+        "  update       check for updates",
+        "  version      version of `work`",
+        "\nOther:",
+        "  -h, --help       show the help page",
+        "  -v, --version    show the version",
     )
 
-    print('\n'.join(help_lines))
+    print("\n".join(help_lines))
     exit()
 
 
 def version():
     # Print the version and exit.
-    print(f'work {__version__[0]}.{__version__[1]}')
+    print(f"work {__version__[0]}.{__version__[1]}")
     exit()
 
 
 def fetch_file_from_repository(url: str) -> Union[str, None]:
     # Fetch a file from the remote repository.
-    if url[0] != '/':
-        url = '/' + url
+    if url[0] != "/":
+        url = "/" + url
     try:
         with urllib.request.urlopen(REPOSITORY + url) as f:
-            return str(f.read(), 'utf8')
+            return str(f.read(), "utf8")
     except urllib.error.URLError:
         return None
 
 
 def load_config() -> dict:
     # Load the config.ini file.
-    config = {
-        'editor': None,
-        'aliases': {},
-        'repos': {}
-    }
+    config = {"editor": None, "aliases": {}, "repos": {}}
 
     parser = configparser.ConfigParser()
 
-    ini_str = read_file('config.ini')
+    ini_str = read_file("config.ini")
     if not ini_str:
-        warn('Missing config.ini file')
-        net('Downloading default config from repository')
-        file = fetch_file_from_repository('config.ini')
+        warn("Missing config.ini file")
+        net("Downloading default config from repository")
+        file = fetch_file_from_repository("config.ini")
         if not file:
-            err('Could not download file')
-        write_file('config.ini', file)
-        ini_str = read_file('config.ini')
+            err("Could not download file")
+        write_file("config.ini", file)
+        ini_str = read_file("config.ini")
         if not ini_str:
-            err('Something really bad happened')
+            err("Something really bad happened")
 
-    parser.read_string(ini_str, 'config.ini')
+    parser.read_string(ini_str, "config.ini")
 
-    if 'settings' in parser.sections():
-        s = parser['settings']
-        if 'editor' in s:
-            config['editor'] = s['editor'].strip()
+    if "settings" in parser.sections():
+        s = parser["settings"]
+        if "editor" in s:
+            config["editor"] = s["editor"].strip()
 
     # Setup aliases
-    if 'aliases' in parser.sections():
-        for k, v in dict(parser['aliases']).items():
-            aliases = [x.strip() for x in v.split(',')]
+    if "aliases" in parser.sections():
+        for k, v in dict(parser["aliases"]).items():
+            aliases = [x.strip() for x in v.split(",")]
             for a in aliases:
-                config['aliases'][a] = k
+                config["aliases"][a] = k
 
-    config['repos']['default'] = []
+    config["repos"]["default"] = []
 
-    if 'git' in parser.sections():
-        for k, v in dict(parser['git']).items():
-            v = v.replace('$(HOME)', str(os.getenv('HOME')))
-            repos = [x.strip() for x in v.split(',')]
-            config['repos']['default'].extend(repos)
+    if "git" in parser.sections():
+        for k, v in dict(parser["git"]).items():
+            v = v.replace("$(HOME)", str(os.getenv("HOME")))
+            repos = [x.strip() for x in v.split(",")]
+            config["repos"]["default"].extend(repos)
 
     return config
 
@@ -623,81 +660,85 @@ def confirm(msg: str) -> bool:
     # Confirm something with the user, by providing
     # a `msg [Y/n] ` line.
     while True:
-        yn = input(f'{msg} [Y/n] ')
-        if not yn or yn.lower() in ('y', 'yes'):
+        yn = input(f"{msg} [Y/n] ")
+        if not yn or yn.lower() in ("y", "yes"):
             return True
-        if yn.lower() in ('n', 'no'):
+        if yn.lower() in ("n", "no"):
             return False
 
 
 def update():
     # Update `work`, if the version.json file says there is a new source file
     # available in the repository.
-    version_json = fetch_file_from_repository('version.json')
+    version_json = fetch_file_from_repository("version.json")
     if not version_json:
-        err('Failed to fetch version.json')
+        err("Failed to fetch version.json")
     version = json.loads(version_json)
-    major, minor = [int(x) for x in version['version'].split('.')]
+    major, minor = [int(x) for x in version["version"].split(".")]
     v = __version__
     if major > v[0] or (major >= v[0] and minor > v[1]):
-        ok(f'New version {major}.{minor} available')
-        if not confirm('Do you want to update?'):
+        ok(f"New version {major}.{minor} available")
+        if not confirm("Do you want to update?"):
             return
     elif (major, minor) != v:
-        warn('Suspicious version, this is newer than the origin')
+        warn("Suspicious version, this is newer than the origin")
         return
     else:
-        ok('Up to date')
+        ok("Up to date")
         return
 
     # Download the new code
-    net('Downloading', version['source'])
-    source_code = fetch_file_from_repository(version['source'])
+    net("Downloading", version["source"])
+    source_code = fetch_file_from_repository(version["source"])
     if not source_code:
-        err('Failed to update')
+        err("Failed to update")
 
-    write_file('__tmp', source_code)
-    os.rename(WORK_DIR + '/__tmp', os.path.realpath(__file__))
-    os.system(f'chmod +x {os.path.realpath(__file__)}')
+    write_file("__tmp", source_code)
+    os.rename(WORK_DIR + "/__tmp", os.path.realpath(__file__))
+    os.system(f"chmod +x {os.path.realpath(__file__)}")
 
 
 def detect_work1() -> bool:
     # If the old file format is detected, update the `timer` file with
     # the proper data. Returns true if the program can continue.
 
-    useless_files = ('pause', 'start')
+    useless_files = ("pause", "start")
     has_useless_files = False
 
     for file in useless_files:
-        if os.path.exists(WORK_DIR + '/' + file):
+        if os.path.exists(WORK_DIR + "/" + file):
             has_useless_files = True
             break
 
-    data = read_file('timer')
-    if data and ':' in data and not read_file('hours') \
-        and not has_useless_files:
+    data = read_file("timer")
+    if (
+        data
+        and ":" in data
+        and not read_file("hours")
+        and not has_useless_files
+    ):
         return True
 
-    warn('Outdated file system format detected, this will automatically')
-    warn('update it. Be sure to halt any running session beforehand.')
-    if not confirm('Update file system'):
+    warn("Outdated file system format detected, this will automatically")
+    warn("update it. Be sure to halt any running session beforehand.")
+    if not confirm("Update file system"):
         return False
 
-    if not data or ':' not in data:
-        write_file('timer', Timer.timer_fmt(Timer.STAT_STOPPED))
-        ok('Updated /timer')
+    if not data or ":" not in data:
+        write_file("timer", Timer.timer_fmt(Timer.STAT_STOPPED))
+        ok("Updated /timer")
 
-    hours = read_file('hours')
+    hours = read_file("hours")
     if hours:
-        if not os.path.isdir(WORK_DIR + '/projects'):
-            os.mkdir(WORK_DIR + '/projects')
-        os.rename(WORK_DIR + '/hours', WORK_DIR + '/projects/default')
-        ok('Moved /hours to /projects/default')
+        if not os.path.isdir(WORK_DIR + "/projects"):
+            os.mkdir(WORK_DIR + "/projects")
+        os.rename(WORK_DIR + "/hours", WORK_DIR + "/projects/default")
+        ok("Moved /hours to /projects/default")
 
     for file in useless_files:
-        if os.path.exists(WORK_DIR + '/' + file):
-            os.remove(WORK_DIR + '/' + file)
-        ok('Removed', file)
+        if os.path.exists(WORK_DIR + "/" + file):
+            os.remove(WORK_DIR + "/" + file)
+        ok("Removed", file)
 
     return True
 
@@ -710,34 +751,34 @@ def main():
     if not os.path.isdir(WORK_DIR):
         os.mkdir(WORK_DIR)
 
-    if any([x in ['--help', '-h', '?', '-?'] for x in sys.argv]):
+    if any([x in ["--help", "-h", "?", "-?"] for x in sys.argv]):
         usage()
-    if any([x in ['--version', '-v'] for x in sys.argv]):
+    if any([x in ["--version", "-v"] for x in sys.argv]):
         version()
     if not detect_work1():
-        err('Please update the file system first.')
+        err("Please update the file system first.")
 
     if len(sys.argv) < 2:
         usage()
 
     config = load_config()
 
-    timer = Timer(WORK_DIR, repos=config['repos'], editor=config['editor'])
+    timer = Timer(WORK_DIR, repos=config["repos"], editor=config["editor"])
     actions = {
-        'edit': timer.edit,
-        'help': usage,
-        'list': timer.list,
-        'pause': timer.pause,
-        'switch': timer.switch,
-        'resume': timer.resume,
-        'start': timer.start,
-        'stop': timer.stop,
-        'status': timer.status,
-        'update': update,
-        'version': version,
+        "edit": timer.edit,
+        "help": usage,
+        "list": timer.list,
+        "pause": timer.pause,
+        "switch": timer.switch,
+        "resume": timer.resume,
+        "start": timer.start,
+        "stop": timer.stop,
+        "status": timer.status,
+        "update": update,
+        "version": version,
     }
 
-    takes_options = ('list')
+    takes_options = ("list", "status")
 
     action = sys.argv[1]
     options = []
@@ -745,8 +786,8 @@ def main():
         options = sys.argv[2:]
 
     # Check aliases
-    if action in config['aliases']:
-        action = config['aliases'][action]
+    if action in config["aliases"]:
+        action = config["aliases"][action]
 
     if action in actions:
         if action in takes_options:
@@ -754,8 +795,9 @@ def main():
         else:
             actions[action]()
     else:
-        warn('Unknown action:', action)
+        warn("Unknown action:", action)
 
     timer.close()
+
 
 main()
