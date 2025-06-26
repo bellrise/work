@@ -8,6 +8,7 @@ import string as _string
 import urllib.request
 import urllib.error
 import configparser
+import subprocess
 import termios
 import time
 import json
@@ -63,7 +64,12 @@ import re
 # 2.12
 # - Added `work status --raw` to use in scripts
 
-__version__ = (2, 12)
+# 2.13
+# - Added `work mail` command.
+# - Match commits for `work stop` to a certain author.
+# - Change --short to --oneline.
+
+__version__ = (2, 13)
 
 WORK_DIR = os.environ["HOME"] + "/.config/work"
 REPOSITORY = "https://raw.githubusercontent.com/bellrise/work/master"
@@ -215,7 +221,9 @@ class Timer:
     timer: dict
     timer_path: str
 
-    def __init__(self, wdir: str, repos: dict, editor=None) -> None:
+    def __init__(
+        self, wdir: str, repos: dict, editor=None, author=None
+    ) -> None:
         # Read or create the timer file if it does not exist.
         # wdir - working directory
         # editor - path to a editor, or None
@@ -231,6 +239,7 @@ class Timer:
         self.project = self.recognize_project()
         self.editor = editor
         self.repos = repos
+        self.author = author
         self.timer = {
             "stat": stat,
             "start": int(start),
@@ -285,9 +294,67 @@ class Timer:
             )
         os.system(f"{self.editor} {self.wdir}/projects/{self.project}")
 
+    def mail(self):
+        # Export the projects to a mail format.
+        data = read_file("projects/" + self.project)
+        if not data:
+            err("Project empty")
+
+        lines = data.strip().splitlines()
+        print()
+
+        for line in lines:
+            date, hours, title = line.split(" ", 2)
+            _, end_date = date.split("/", 1)
+            repos = []
+
+            if COMMIT_SPLIT in title:
+                # This still needs to be here for backwards compatibility.
+                # For some reason, I split BOTH the repositories and commits
+                # with <&&&>. I have no idea why I did this but it doesn't
+                # work.
+                if REPO_SPLIT in title:
+                    title, rest = title.split(REPO_SPLIT, 1)
+                    repos = rest.split(REPO_SPLIT)
+                else:
+                    title, repos = title.split(COMMIT_SPLIT, 1)
+                    repos = [repos]
+
+            h = int(hours.split(":")[0])
+            print(f"{end_date} - {h}h: {title}")
+
+            for repo in repos:
+                r = repo.split(COMMIT_SPLIT)
+                repo, commits = r[0], r[1:]
+                remote_addr = ""
+
+                try:
+                    remote_addr = subprocess.run(
+                        ["git", "remote", "get-url", "origin"],
+                        capture_output=True,
+                        encoding="utf8",
+                        cwd=repo,
+                    ).stdout.strip()
+                except Exception:
+                    pass
+
+                remote_addr = (
+                    remote_addr
+                    if remote_addr
+                    else repo.rsplit("/", maxsplit=1)[-1]
+                )
+
+                print(f"    Commits in {remote_addr}:")
+                for commit in commits:
+                    print(f"    - {commit}")
+                print()
+
+            # Newline after every day
+            print()
+
     def list(self, options: list):
         # List the saved sessions in the current project.
-        # -o, --short   only a single line for each session
+        # -o, --oneline only a single line for each session
         # -s, --sum     sum all the hours
         data = read_file("projects/" + self.project)
         if not data:
@@ -320,8 +387,8 @@ class Timer:
                 total_h += int((total_m - (total_m % 60)) / 60)
                 total_m = total_m % 60
 
-            # If the --short parameter is passed, print the minimal info
-            if any_in(("-o", "--short"), options):
+            # If the --oneline parameter is passed, print the minimal info
+            if any_in(("-o", "--oneline"), options):
                 print(f"\033[96m{hours}\033[0m - {title}")
                 continue
 
@@ -349,7 +416,7 @@ class Timer:
                 f"\n      Sum: \033[96m{total_h} hour(s) and {total_m} "
                 "minute(s)"
             )
-        if not any_in(("-o", "--short"), options):
+        if not any_in(("-o", "--oneline"), options):
             print()
 
     def cmdline_stop(self) -> str:
@@ -429,9 +496,11 @@ class Timer:
                 warn(repo, "is not a git repository")
                 continue
 
+            author = f"--author='{self.author}'" if self.author else ""
+
             # Get the commits made during that time
             os.system(
-                f"cd {repo}; git log --oneline --since={start_time} "
+                f"cd {repo}; git log --oneline --since={start_time} {author}"
                 f"> {self.wdir}/__tmp"
             )
 
@@ -553,12 +622,14 @@ class Timer:
 
         if any_in(("-r", "--raw"), options):
             if self.timer["stat"] == self.STAT_STOPPED:
-                return print("stopped 00:00:00 0")
-            return print(
+                print("stopped 00:00:00 0")
+                return
+            print(
                 self.timer["stat"],
                 self.elapsed_time("%02d:%02d:%02d"),
                 self.elapsed_seconds(),
             )
+            return
 
         ok(f"In project `{self.project}`")
         s = self.timer["stat"]
@@ -574,25 +645,29 @@ def usage():
     # Print the help page and exit.
     help_lines = (
         "usage: work <action> [option]...\n",
-        "Keep track of worked hours.",
+        "\033[1mKeep track of worked hours.\033[m",
         "\nActions:",
-        "  edit         edit the session list",
-        "  help         show the help page",
-        "  list         list the sessions in this project",
-        "  pause        pause the timer",
-        "  resume       resume the timer",
-        "  start        start the timer",
-        "  stop         stop the timer",
-        "  status       status of the timer",
-        "  switch       switch to another project",
-        "  update       check for updates",
-        "  version      version of `work`",
+        "  edit             edit the session list",
+        "  help             show the help page",
+        "  list [flags]     list the sessions in this project",
+        "      -s, --sum    sum all hours",
+        "      -o, --oneline oneline output",
+        "  mail             export the hour list for a mail",
+        "  pause            pause the timer",
+        "  resume           resume the timer",
+        "  start            start the timer",
+        "  status           status of the timer",
+        "  stop             stop the timer",
+        "  switch           switch to another project",
+        "  update           check for updates",
+        "  version          version of `work`",
         "\nOther:",
         "  -h, --help       show the help page",
         "  -v, --version    show the version",
     )
 
     print("\n".join(help_lines))
+    print()
     exit()
 
 
@@ -615,7 +690,7 @@ def fetch_file_from_repository(url: str) -> Union[str, None]:
 
 def load_config() -> dict:
     # Load the config.ini file.
-    config = {"editor": None, "aliases": {}, "repos": {}}
+    config = {"editor": None, "author": None, "aliases": {}, "repos": {}}
 
     parser = configparser.ConfigParser()
 
@@ -637,6 +712,8 @@ def load_config() -> dict:
         s = parser["settings"]
         if "editor" in s:
             config["editor"] = s["editor"].strip()
+        if "author" in s:
+            config["author"] = s["author"].strip()
 
     # Setup aliases
     if "aliases" in parser.sections():
@@ -763,17 +840,24 @@ def main():
 
     config = load_config()
 
-    timer = Timer(WORK_DIR, repos=config["repos"], editor=config["editor"])
+    timer = Timer(
+        WORK_DIR,
+        repos=config["repos"],
+        editor=config["editor"],
+        author=config["author"],
+    )
+
     actions = {
         "edit": timer.edit,
         "help": usage,
         "list": timer.list,
+        "mail": timer.mail,
         "pause": timer.pause,
-        "switch": timer.switch,
         "resume": timer.resume,
         "start": timer.start,
-        "stop": timer.stop,
         "status": timer.status,
+        "stop": timer.stop,
+        "switch": timer.switch,
         "update": update,
         "version": version,
     }
