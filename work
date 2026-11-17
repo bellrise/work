@@ -4,11 +4,13 @@
 # from the defined WORK_DIR. No files can be placed elsewhere.
 
 from typing import Union
+from datetime import date as Date, datetime, timedelta
 import string as _string
 import urllib.request
 import urllib.error
 import configparser
 import subprocess
+import shutil
 import termios
 import time
 import json
@@ -69,7 +71,10 @@ import re
 # - Match commits for `work stop` to a certain author.
 # - Change --short to --oneline.
 
-__version__ = (2, 13)
+# 2.14
+# - Added `work heatmap` with a rolling year of tracked activity.
+
+__version__ = (2, 14)
 
 WORK_DIR = os.environ["HOME"] + "/.config/work"
 REPOSITORY = "https://raw.githubusercontent.com/bellrise/work/master"
@@ -143,9 +148,7 @@ def smart_autocomplete(prompt: str, strings: list[str]) -> str:
 
         print(f"\033[2K\r{prompt}{now}", end="", flush=True)
         if offer:
-            print(
-                f"\033[90m{offer}\033[0m\033[{len(offer)}D", end="", flush=True
-            )
+            print(f"\033[90m{offer}\033[0m\033[{len(offer)}D", end="", flush=True)
 
         try:
             c = sys.stdin.read(1)
@@ -221,9 +224,7 @@ class Timer:
     timer: dict
     timer_path: str
 
-    def __init__(
-        self, wdir: str, repos: dict, editor=None, author=None
-    ) -> None:
+    def __init__(self, wdir: str, repos: dict, editor=None, author=None, theme="dark") -> None:
         # Read or create the timer file if it does not exist.
         # wdir - working directory
         # editor - path to a editor, or None
@@ -240,6 +241,7 @@ class Timer:
         self.editor = editor
         self.repos = repos
         self.author = author
+        self.theme = theme
         self.timer = {
             "stat": stat,
             "start": int(start),
@@ -339,9 +341,7 @@ class Timer:
                     pass
 
                 remote_addr = (
-                    remote_addr
-                    if remote_addr
-                    else repo.rsplit("/", maxsplit=1)[-1]
+                    remote_addr if remote_addr else repo.rsplit("/", maxsplit=1)[-1]
                 )
 
                 print(f"    Commits in {remote_addr}:")
@@ -412,12 +412,190 @@ class Timer:
                     print(f"    \033[93m{commit_id}\033[0m {msg}")
 
         if any_in(("-s", "--sum"), options):
-            print(
-                f"\n      Sum: \033[96m{total_h} hour(s) and {total_m} "
-                "minute(s)"
-            )
+            print(f"\n      Sum: \033[96m{total_h} hour(s) and {total_m} minute(s)")
         if not any_in(("-o", "--oneline"), options):
             print()
+
+    def heatmap(self):
+        # Show the last 53 weeks of work across all projects, grouped by the
+        # day each session ended. A regular work day (six hours or more)
+        # uses the strongest shade.
+        activity = {}
+        data = ""
+        projects_dir = os.path.join(self.wdir, "projects")
+        if os.path.isdir(projects_dir):
+            with os.scandir(projects_dir) as projects:
+                data = "\n".join(
+                    read_file("projects/" + project.name) or ""
+                    for project in projects
+                    if project.is_file()
+                )
+
+        for line in data.splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) < 2:
+                continue
+
+            timestamp, duration = parts[:2]
+            try:
+                day = datetime.strptime(timestamp.split("/", 1)[1], "%d/%m/%y").date()
+                hours, minutes, seconds = [int(value) for value in duration.split(":")]
+            except (IndexError, TypeError, ValueError):
+                continue
+
+            activity[day] = activity.get(day, 0) + (
+                hours * 3600 + minutes * 60 + seconds
+            )
+
+        today = Date.today()
+        if self.timer["stat"] != self.STAT_STOPPED:
+            activity[today] = activity.get(today, 0) + self.elapsed_seconds()
+
+        # Align the graph to complete Sunday-Saturday columns. This yields the
+        # familiar contribution-calendar shape while keeping today visible.
+        sunday_index = (today.weekday() + 1) % 7
+        end = today + timedelta(days=6 - sunday_index)
+
+        terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+        week_count = 53 if terminal_width >= 56 else max(1, terminal_width - 3)
+        cell_width = 2 if terminal_width >= 3 + week_count * 2 - 1 else 1
+        start = end - timedelta(days=week_count * 7 - 1)
+
+        visible_activity = {
+            day: seconds for day, seconds in activity.items()
+            if start <= day <= today and seconds > 0
+        }
+        monthly_activity = {}
+        longest_streak = streak = 0
+        previous_day = None
+        for day in sorted(visible_activity):
+            month = day.replace(day=1)
+            monthly_activity[month] = (
+                monthly_activity.get(month, 0) + visible_activity[day]
+            )
+            streak = streak + 1 if previous_day == day - timedelta(days=1) else 1
+            longest_streak = max(longest_streak, streak)
+            previous_day = day
+
+        # Yesterday's streak is still current until today ends.
+        streak_day = today if today in visible_activity else today - timedelta(days=1)
+        current_streak = 0
+        while streak_day in visible_activity:
+            current_streak += 1
+            streak_day -= timedelta(days=1)
+
+        def hours_label(seconds):
+            minutes = seconds // 60
+            return f"{minutes // 60}h {minutes % 60}m"
+
+        top_month = max(monthly_activity, key=monthly_activity.get, default=None)
+        top_month_label = (
+            f"{top_month:%b %Y} ({hours_label(monthly_activity[top_month])})"
+            if top_month else "—"
+        )
+        metrics = [
+            (hours_label(sum(visible_activity.values())), "Total hours"),
+            (top_month_label, "Top month"),
+            (hours_label(max(visible_activity.values(), default=0)), "Top day hours"),
+            (f"{current_streak} days", "Current streak"),
+            (f"{longest_streak} days", "Longest streak"),
+        ]
+        # Wrap summary columns to fit the terminal; keep ANSI styling even
+        # when output is piped to another program.
+        print()
+        while metrics:
+            row = []
+            row_width = 0
+            while metrics:
+                value, label = metrics[0]
+                width = max(len(value), len(label))
+                added_width = width + (3 if row else 0)
+                if row and row_width + added_width > terminal_width:
+                    break
+                row.append((value, label, width))
+                row_width += added_width
+                metrics.pop(0)
+            padding = " " * max(0, (terminal_width - row_width) // 2)
+            print(padding + "   ".join(
+                f"\033[1m{value:^{width}}\033[0m" for value, _, width in row
+            ))
+            print(padding + "   ".join(f"{label:^{width}}" for _, label, width in row))
+            print()
+
+        month_line = [" "] * (week_count * cell_width + 3)
+        previous_month = start.month
+        for week in range(week_count):
+            week_start = start + timedelta(days=week * 7)
+            months = [
+                (week_start + timedelta(days=offset)).month for offset in range(7)
+            ]
+            month = next((value for value in months if value != previous_month), None)
+            if month is None:
+                continue
+
+            first_day = next(
+                week_start + timedelta(days=offset)
+                for offset in range(7)
+                if (week_start + timedelta(days=offset)).month == month
+            )
+            label = first_day.strftime("%b")
+            position = 3 + week * cell_width
+            month_line[position : position + len(label)] = label
+            previous_month = month
+
+        colors = (
+            (244, 232, 193),  # F4E8C1
+            (160, 193, 185),  # A0C1B9
+            (112, 160, 175),  # 70A0AF
+            (112, 105, 147),  # 706993
+            (51, 30, 56),     # 331E38
+        )
+        if sys.stdout.isatty():
+            color_codes = [f"38;2;{r};{g};{b}" for r, g, b in colors]
+        else:
+            # watch -c understands indexed colors, but not truecolor RGB.
+            # Keep colors in pipes using the closest xterm palette entries.
+            levels = (0, 95, 135, 175, 215, 255)
+            indexed_colors = [
+                (r, g, b) for r in levels for g in levels for b in levels
+            ] + [(8 + 10 * i,) * 3 for i in range(24)]
+            color_codes = []
+            for rgb in colors:
+                index = min(
+                    range(len(indexed_colors)),
+                    key=lambda i: sum(
+                        (a - b) ** 2 for a, b in zip(rgb, indexed_colors[i])
+                    ),
+                ) + 16
+                color_codes.append(f"38;5;{index}")
+        labels = ("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")
+
+        graph_width = 3 + week_count * cell_width - (1 if cell_width == 2 else 0)
+        graph_padding = " " * max(0, (terminal_width - graph_width) // 2)
+        print(graph_padding + "".join(month_line).rstrip())
+        for row, label in enumerate(labels):
+            cells = []
+            for week in range(week_count):
+                day = start + timedelta(days=week * 7 + row)
+                seconds = activity.get(day, 0)
+                if seconds == 0:
+                    level = 0
+                elif seconds < 2 * 3600:
+                    level = 1
+                elif seconds < 4 * 3600:
+                    level = 2
+                elif seconds < 6 * 3600:
+                    level = 3
+                else:
+                    level = 4
+
+                gap = " " if cell_width == 2 else ""
+                square = "■" if cell_width == 2 else "▪"
+                cells.append(f"\033[{color_codes[level]}m{square}\033[0m{gap}")
+
+            print(graph_padding + f"{label} " + "".join(cells).rstrip())
+
+        print()
 
     def cmdline_stop(self) -> str:
         # Get a title from the user on the command line.
@@ -478,9 +656,7 @@ class Timer:
             self.timer["paused_for"] += paused_for
 
         self.timer["stat"] = self.STAT_STOPPED
-        elapsed_time = (
-            unixtime() - self.timer["start"] - self.timer["paused_for"]
-        )
+        elapsed_time = unixtime() - self.timer["start"] - self.timer["paused_for"]
 
         start_time = self.timer["start"]
 
@@ -511,19 +687,10 @@ class Timer:
             commits = str(read_file("__tmp")).splitlines()
             if commits:
                 all_commits[repo] = commits
-                fmt += (
-                    REPO_SPLIT
-                    + repo
-                    + COMMIT_SPLIT
-                    + COMMIT_SPLIT.join(commits)
-                )
+                fmt += REPO_SPLIT + repo + COMMIT_SPLIT + COMMIT_SPLIT.join(commits)
             os.remove(self.wdir + "/__tmp")
 
-        title = (
-            self.editor_stop(all_commits)
-            if self.editor
-            else self.cmdline_stop()
-        )
+        title = self.editor_stop(all_commits) if self.editor else self.cmdline_stop()
         if not title:
             err("Empty title, cannot stop")
 
@@ -649,6 +816,7 @@ def usage():
         "\nActions:",
         "  edit             edit the session list",
         "  help             show the help page",
+        "  heatmap          show activity from the last year",
         "  list [flags]     list the sessions in this project",
         "      -s, --sum    sum all hours",
         "      -o, --oneline oneline output",
@@ -690,7 +858,7 @@ def fetch_file_from_repository(url: str) -> Union[str, None]:
 
 def load_config() -> dict:
     # Load the config.ini file.
-    config = {"editor": None, "author": None, "aliases": {}, "repos": {}}
+    config = {"editor": None, "author": None, "theme": "dark", "aliases": {}, "repos": {}}
 
     parser = configparser.ConfigParser()
 
@@ -714,6 +882,12 @@ def load_config() -> dict:
             config["editor"] = s["editor"].strip()
         if "author" in s:
             config["author"] = s["author"].strip()
+        if "theme" in s:
+            theme = s["theme"].strip().lower()
+            if theme in ("light", "dark"):
+                config["theme"] = theme
+            else:
+                warn("Invalid theme in config.ini; using dark (choose light or dark)")
 
     # Setup aliases
     if "aliases" in parser.sections():
@@ -788,12 +962,7 @@ def detect_work1() -> bool:
             break
 
     data = read_file("timer")
-    if (
-        data
-        and ":" in data
-        and not read_file("hours")
-        and not has_useless_files
-    ):
+    if data and ":" in data and not read_file("hours") and not has_useless_files:
         return True
 
     warn("Outdated file system format detected, this will automatically")
@@ -845,11 +1014,13 @@ def main():
         repos=config["repos"],
         editor=config["editor"],
         author=config["author"],
+        theme=config["theme"],
     )
 
     actions = {
         "edit": timer.edit,
         "help": usage,
+        "heatmap": timer.heatmap,
         "list": timer.list,
         "mail": timer.mail,
         "pause": timer.pause,
